@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RBI HEAT — S&C Program Generator</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    background: linear-gradient(135deg, #111521 0%, #1a1f3a 100%);
+    color: #ffffff;
+    margin: 0;
+    padding: 24px;
+    min-height: 100vh;
+  }
+  .container { max-width: 900px; margin: 0 auto; }
+  .logo { width: 140px; margin: 0 auto 12px; text-align: center; }
+  .logo img { width: 100%; height: auto; }
+  h1 { color: #fcba39; font-size: 26px; margin-bottom: 6px; font-weight: 700; text-align: center; }
+  .subtitle { color: rgba(255, 255, 255, 0.7); font-size: 15px; margin-bottom: 24px; text-align: center; }
+
+  .tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; justify-content: center; }
+  .tab-btn {
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.75);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 10px 18px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .tab-btn.active { background: #fcba39; color: #111521; border-color: #fcba39; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  .card {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  label { display: block; color: #fcba39; font-size: 12.5px; font-weight: 600; margin-bottom: 6px; margin-top: 16px; }
+  label:first-child { margin-top: 0; }
+  input[type="text"], input[type="date"], select {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 14px;
+    font-family: inherit;
+  }
+  input:focus, select:focus { outline: none; border-color: #fcba39; background: rgba(255, 255, 255, 0.12); }
+  option { background: #111521; color: #ffffff; }
+
+  /* Athlete typeahead */
+  .typeahead-wrap { position: relative; }
+  .typeahead-results {
+    position: absolute; top: 100%; left: 0; right: 0;
+    background: #1a1f3a; border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px; margin-top: 4px; max-height: 220px; overflow-y: auto;
+    z-index: 20; display: none;
+  }
+  .typeahead-option { padding: 10px 14px; cursor: pointer; font-size: 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
+  .typeahead-option:hover { background: rgba(252, 186, 57, 0.15); }
+
+  /* Athlete summary card */
+  .athlete-summary { display: none; margin-top: 16px; }
+  .athlete-name { font-size: 20px; font-weight: 700; color: #ffffff; }
+  .athlete-meta { color: rgba(255,255,255,0.6); font-size: 13px; margin-top: 2px; }
+
+  .staleness-banner {
+    background: rgba(245, 166, 35, 0.12);
+    border: 1px solid rgba(245, 166, 35, 0.35);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13px;
+    color: #f5a623;
+    margin-top: 12px;
+  }
+
+  .flag-list { margin-top: 14px; }
+  .flag-item {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    background: rgba(255, 255, 255, 0.04);
+    border-left: 3px solid #f44336;
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    font-size: 13.5px;
+  }
+  .flag-item.priority-4, .flag-item.priority-5, .flag-item.priority-6 { border-left-color: #f5a623; }
+  .flag-badge {
+    background: rgba(244, 67, 54, 0.2); color: #f44336;
+    border-radius: 10px; padding: 2px 8px; font-size: 11px; font-weight: 700; flex-shrink: 0;
+  }
+  .priority-4 .flag-badge, .priority-5 .flag-badge, .priority-6 .flag-badge { background: rgba(245, 166, 35, 0.2); color: #f5a623; }
+  .no-flags { color: #4CAF50; font-size: 13.5px; margin-top: 14px; }
+
+  /* Season status */
+  .radio-row { display: flex; gap: 16px; margin-top: 8px; }
+  .radio-option { display: flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; }
+  .radio-option input { width: auto; }
+  #season-date-field { display: none; }
+
+  .btn-row { display: flex; gap: 10px; margin-top: 20px; }
+  .btn-primary {
+    background: linear-gradient(135deg, #fcba39 0%, #f5a623 100%);
+    color: #111521; border: none; border-radius: 8px;
+    padding: 12px 24px; font-size: 14px; font-weight: 700; cursor: pointer;
+  }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-secondary {
+    background: rgba(255, 255, 255, 0.08); color: rgba(255,255,255,0.85);
+    border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px;
+    padding: 12px 24px; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  #generate-status { margin-top: 14px; font-size: 14px; font-weight: 600; }
+  #generate-status.success { color: #4CAF50; }
+  #generate-status.error { color: #f44336; }
+  #generate-status.working { color: #fcba39; }
+
+  /* Find Programming tab */
+  .filter-row { margin-bottom: 16px; }
+  .program-list-item {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;
+  }
+  .program-list-name { font-weight: 700; font-size: 15px; }
+  .program-list-meta { color: rgba(255,255,255,0.6); font-size: 12.5px; margin-top: 2px; }
+  .link-btn {
+    background: none; border: 1px solid rgba(255,255,255,0.2); color: rgba(255,255,255,0.85);
+    border-radius: 6px; padding: 8px 14px; cursor: pointer; font-size: 13px; text-decoration: none;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="logo"><img src="RBI_HEAT_Logo.svg" alt="RBI HEAT"></div>
+  <h1>RBI HEAT — S&C Program Generator</h1>
+  <div class="subtitle">Generate a 12-week S&C program from force-plate data.</div>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="generate">Generate Program</button>
+    <button class="tab-btn" data-tab="find">Find Programming</button>
+  </div>
+
+  <!-- ============ TAB 1: GENERATE ============ -->
+  <div class="tab-panel active" id="tab-generate">
+    <div class="card">
+      <label>Athlete</label>
+      <div class="typeahead-wrap">
+        <input type="text" id="athlete-search" placeholder="Start typing an athlete's name...">
+        <div class="typeahead-results" id="typeahead-results"></div>
+      </div>
+
+      <div class="athlete-summary" id="athlete-summary">
+        <div class="athlete-name" id="athlete-name"></div>
+        <div class="athlete-meta" id="athlete-meta"></div>
+        <div id="staleness-banner-wrap"></div>
+
+        <div id="missing-fields-form" style="display:none; margin-top:14px; padding:14px; background:rgba(252,186,57,0.06); border:1px solid rgba(252,186,57,0.2); border-radius:8px;">
+          <label style="margin-top:0;">This athlete is missing some info — fill in what's needed:</label>
+          <div id="missing-position-field" style="display:none;">
+            <label>Position</label>
+            <select id="missing-position">
+              <option value="hitter">Hitter</option>
+              <option value="pitcher">Pitcher</option>
+              <option value="both">Both (two-way)</option>
+            </select>
+          </div>
+          <div id="missing-bats-field" style="display:none;">
+            <label>Bats</label>
+            <select id="missing-bats">
+              <option value="right">Right</option>
+              <option value="left">Left</option>
+              <option value="switch">Switch</option>
+            </select>
+          </div>
+          <div id="missing-throws-field" style="display:none;">
+            <label>Throws</label>
+            <select id="missing-throws">
+              <option value="right">Right</option>
+              <option value="left">Left</option>
+            </select>
+          </div>
+          <div class="btn-row">
+            <button class="btn-secondary" id="save-missing-fields-btn" type="button">Save & Continue</button>
+          </div>
+        </div>
+
+        <div class="flag-list" id="flag-list"></div>
+      </div>
+    </div>
+
+    <div class="card" id="generate-options" style="display:none;">
+      <label>Season Status</label>
+      <div class="radio-row">
+        <label class="radio-option"><input type="radio" name="season-status" value="offseason" checked> Off-season</label>
+        <label class="radio-option"><input type="radio" name="season-status" value="in_season"> In-season</label>
+      </div>
+
+      <div id="season-date-field">
+        <label id="season-date-label">Expected Season Start (optional)</label>
+        <input type="date" id="season-date">
+      </div>
+
+      <label>Days per Week</label>
+      <select id="days-per-week">
+        <option value="3">3 days/week</option>
+        <option value="4">4 days/week</option>
+      </select>
+
+      <div class="btn-row">
+        <button class="btn-primary" id="generate-btn">Generate 12-Week Program</button>
+      </div>
+      <div id="generate-status"></div>
+    </div>
+  </div>
+
+  <!-- ============ TAB 2: FIND PROGRAMMING ============ -->
+  <div class="tab-panel" id="tab-find">
+    <div class="card">
+      <div class="filter-row">
+        <input type="text" id="find-search" placeholder="Search by athlete name...">
+      </div>
+      <div id="program-results"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Update this after your first deploy:
+// const API_URL = 'http://localhost:8080/api';
+const API_URL = 'https://sc-programming-api-REPLACE-ME.a.run.app/api';
+
+let selectedPlayerId = null;
+let selectedAthleteData = null;
+
+// ---------- Tabs ----------
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    if (btn.dataset.tab === 'find') runProgramSearch();
+  });
+});
+
+// ---------- Athlete typeahead ----------
+let searchTimer;
+const athleteSearch = document.getElementById('athlete-search');
+const typeaheadResults = document.getElementById('typeahead-results');
+
+athleteSearch.addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  const q = athleteSearch.value.trim();
+  if (q.length < 2) { typeaheadResults.style.display = 'none'; return; }
+  searchTimer = setTimeout(() => {
+    fetch(`${API_URL}/players/search?q=${encodeURIComponent(q)}`)
+      .then(r => r.json())
+      .then(results => {
+        if (!results.length) { typeaheadResults.style.display = 'none'; return; }
+        typeaheadResults.innerHTML = results.map(a => `
+          <div class="typeahead-option" data-id="${a.Player_Id}">${a.norm_name}</div>
+        `).join('');
+        typeaheadResults.style.display = 'block';
+        typeaheadResults.querySelectorAll('.typeahead-option').forEach(el => {
+          el.addEventListener('click', () => selectAthlete(parseInt(el.dataset.id, 10)));
+        });
+      })
+      .catch(err => console.error('Player search failed:', err));
+  }, 250);
+});
+document.addEventListener('click', e => {
+  if (!e.target.closest('.typeahead-wrap')) typeaheadResults.style.display = 'none';
+});
+
+function selectAthlete(playerId) {
+  selectedPlayerId = playerId;
+  typeaheadResults.style.display = 'none';
+  setStatus('generate-status', '', '');
+
+  fetch(`${API_URL}/players/${playerId}/assessment-preview`)
+    .then(async r => {
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Failed to load athlete');
+      return data;
+    })
+    .then(data => {
+      selectedAthleteData = data.athlete;
+      athleteSearch.value = data.athlete.name;
+
+      document.getElementById('athlete-name').textContent = data.athlete.name;
+      const metaParts = [];
+      if (data.athlete.position_type) metaParts.push(data.athlete.position_type);
+      if (data.athlete.bats) metaParts.push(`Bats: ${data.athlete.bats}`);
+      if (data.athlete.throws) metaParts.push(`Throws: ${data.athlete.throws}`);
+      if (data.most_recent_test_date) metaParts.push(`Last test: ${data.most_recent_test_date}`);
+      document.getElementById('athlete-meta').textContent = metaParts.join(' · ');
+
+      const bannerWrap = document.getElementById('staleness-banner-wrap');
+      bannerWrap.innerHTML = data.staleness_warning
+        ? `<div class="staleness-banner">⚠ ${data.staleness_warning}</div>` : '';
+
+      const flagList = document.getElementById('flag-list');
+      if (!data.flags.length) {
+        flagList.innerHTML = '<div class="no-flags">✓ No Priority Stack flags — no red flags on the most recent test.</div>';
+      } else {
+        flagList.innerHTML = data.flags.map(f => `
+          <div class="flag-item priority-${f.priority}">
+            <span class="flag-badge">P${f.priority}</span>
+            <span>${f.description}</span>
+          </div>
+        `).join('');
+      }
+
+      // Only show fields that are actually missing — never re-ask for what's on file
+      const missingPosition = !data.athlete.position_type;
+      const missingBats = !data.athlete.bats;
+      const missingThrows = !data.athlete.throws;
+      const anyMissing = missingPosition || missingBats || missingThrows;
+      document.getElementById('missing-fields-form').style.display = anyMissing ? 'block' : 'none';
+      document.getElementById('missing-position-field').style.display = missingPosition ? 'block' : 'none';
+      document.getElementById('missing-bats-field').style.display = missingBats ? 'block' : 'none';
+      document.getElementById('missing-throws-field').style.display = missingThrows ? 'block' : 'none';
+
+      document.getElementById('athlete-summary').style.display = 'block';
+      document.getElementById('generate-options').style.display = 'block';
+    })
+    .catch(err => {
+      setStatus('generate-status', err.message, 'error');
+      document.getElementById('athlete-summary').style.display = 'none';
+      document.getElementById('generate-options').style.display = 'none';
+    });
+}
+
+document.getElementById('save-missing-fields-btn').addEventListener('click', () => {
+  if (!selectedPlayerId) return;
+  const payload = {};
+  if (document.getElementById('missing-position-field').style.display !== 'none') {
+    payload.position_type = document.getElementById('missing-position').value;
+  }
+  if (document.getElementById('missing-bats-field').style.display !== 'none') {
+    payload.bats = document.getElementById('missing-bats').value;
+  }
+  if (document.getElementById('missing-throws-field').style.display !== 'none') {
+    payload.throws = document.getElementById('missing-throws').value;
+  }
+  fetch(`${API_URL}/players/${selectedPlayerId}/position`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+  }).then(async r => {
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Failed to save');
+    Object.assign(selectedAthleteData, payload);
+    document.getElementById('missing-fields-form').style.display = 'none';
+    setStatus('generate-status', 'Saved. You can generate the program now.', 'success');
+  }).catch(err => setStatus('generate-status', err.message, 'error'));
+});
+
+// ---------- Season status toggle ----------
+document.querySelectorAll('input[name="season-status"]').forEach(radio => {
+  radio.addEventListener('change', () => {
+    const status = document.querySelector('input[name="season-status"]:checked').value;
+    document.getElementById('season-date-field').style.display = 'block';
+    document.getElementById('season-date-label').textContent =
+      status === 'offseason' ? 'Expected Season Start (optional)' : 'Expected Season End (optional)';
+  });
+});
+document.getElementById('season-date-field').style.display = 'block';
+
+// ---------- Generate ----------
+document.getElementById('generate-btn').addEventListener('click', () => {
+  if (!selectedPlayerId) return;
+
+  const missingStillShown = document.getElementById('missing-fields-form').style.display !== 'none';
+  if (missingStillShown) {
+    setStatus('generate-status', 'Save the athlete info above before generating.', 'error');
+    return;
+  }
+
+  const seasonStatus = document.querySelector('input[name="season-status"]:checked').value;
+  const seasonDate = document.getElementById('season-date').value || null;
+  const daysPerWeek = parseInt(document.getElementById('days-per-week').value, 10);
+
+  const payload = {
+    player_id: selectedPlayerId,
+    season_status: seasonStatus,
+    days_per_week: daysPerWeek,
+  };
+  if (seasonDate && seasonStatus === 'offseason') payload.season_start_date = seasonDate;
+  if (seasonDate && seasonStatus === 'in_season') payload.season_end_date = seasonDate;
+
+  const statusEl = document.getElementById('generate-status');
+  const btn = document.getElementById('generate-btn');
+  btn.disabled = true;
+  setStatus('generate-status', 'Generating program — this can take a minute...', 'working');
+
+  fetch(`${API_URL}/programs`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+  })
+    .then(async r => {
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Generation failed');
+      return data;
+    })
+    .then(data => {
+      downloadBase64Pdf(data.pdf_base64, data.filename);
+      let msg = 'Program generated and downloaded.';
+      if (data.staleness_warning) msg += ` Note: ${data.staleness_warning}`;
+      setStatus('generate-status', msg, 'success');
+    })
+    .catch(err => setStatus('generate-status', err.message, 'error'))
+    .finally(() => { btn.disabled = false; });
+});
+
+function downloadBase64Pdf(base64, filename) {
+  const byteChars = atob(base64);
+  const byteNumbers = new Array(byteChars.length);
+  for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
+  const blob = new Blob([new Uint8Array(byteNumbers)], { type: 'application/pdf' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function setStatus(elId, msg, cls) {
+  const el = document.getElementById(elId);
+  el.textContent = msg;
+  el.className = cls;
+}
+
+// ---------- Find Programming ----------
+let findTimer;
+document.getElementById('find-search').addEventListener('input', () => {
+  clearTimeout(findTimer);
+  findTimer = setTimeout(runProgramSearch, 250);
+});
+
+function runProgramSearch() {
+  const q = document.getElementById('find-search').value.trim();
+  fetch(`${API_URL}/programs?q=${encodeURIComponent(q)}`)
+    .then(r => r.json())
+    .then(programs => {
+      const container = document.getElementById('program-results');
+      if (!programs.length) { container.innerHTML = '<p style="color:rgba(255,255,255,0.5)">No programs found.</p>'; return; }
+      container.innerHTML = programs.map(p => `
+        <div class="program-list-item">
+          <div>
+            <div class="program-list-name">${p.athlete_name}</div>
+            <div class="program-list-meta">Created ${p.created_at.slice(0, 10)} · ${p.days_per_week} days/week</div>
+          </div>
+          <button class="link-btn" onclick="downloadExistingProgram(${p.program_id})">Download PDF</button>
+        </div>
+      `).join('');
+    })
+    .catch(err => console.error('Program list failed:', err));
+}
+
+function downloadExistingProgram(programId) {
+  fetch(`${API_URL}/programs/${programId}/download`)
+    .then(async r => {
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Download failed');
+      return data;
+    })
+    .then(data => downloadBase64Pdf(data.pdf_base64, data.filename))
+    .catch(err => alert(err.message));
+}
+</script>
+</body>
+</html>

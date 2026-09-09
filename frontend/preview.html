@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RBI HEAT — S&C Program Generator (Preview)</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    background: linear-gradient(135deg, #111521 0%, #1a1f3a 100%);
+    color: #ffffff;
+    margin: 0;
+    padding: 24px;
+    min-height: 100vh;
+  }
+  .container { max-width: 900px; margin: 0 auto; }
+  .logo { width: 140px; margin: 0 auto 12px; text-align: center; }
+  .logo img { width: 100%; height: auto; }
+  h1 { color: #fcba39; font-size: 26px; margin-bottom: 6px; font-weight: 700; text-align: center; }
+  .subtitle { color: rgba(255, 255, 255, 0.7); font-size: 15px; margin-bottom: 24px; text-align: center; }
+
+  .tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; justify-content: center; }
+  .tab-btn {
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.75);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 10px 18px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .tab-btn.active { background: #fcba39; color: #111521; border-color: #fcba39; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  .card {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  label { display: block; color: #fcba39; font-size: 12.5px; font-weight: 600; margin-bottom: 6px; margin-top: 16px; }
+  label:first-child { margin-top: 0; }
+  input[type="text"], input[type="date"], select {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 14px;
+    font-family: inherit;
+  }
+  input:focus, select:focus { outline: none; border-color: #fcba39; background: rgba(255, 255, 255, 0.12); }
+  option { background: #111521; color: #ffffff; }
+
+  /* Athlete typeahead */
+  .typeahead-wrap { position: relative; }
+  .typeahead-results {
+    position: absolute; top: 100%; left: 0; right: 0;
+    background: #1a1f3a; border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px; margin-top: 4px; max-height: 220px; overflow-y: auto;
+    z-index: 20; display: none;
+  }
+  .typeahead-option { padding: 10px 14px; cursor: pointer; font-size: 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
+  .typeahead-option:hover { background: rgba(252, 186, 57, 0.15); }
+
+  /* Athlete summary card */
+  .athlete-summary { display: none; margin-top: 16px; }
+  .athlete-name { font-size: 20px; font-weight: 700; color: #ffffff; }
+  .athlete-meta { color: rgba(255,255,255,0.6); font-size: 13px; margin-top: 2px; }
+
+  .staleness-banner {
+    background: rgba(245, 166, 35, 0.12);
+    border: 1px solid rgba(245, 166, 35, 0.35);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13px;
+    color: #f5a623;
+    margin-top: 12px;
+  }
+
+  .flag-list { margin-top: 14px; }
+  .flag-item {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    background: rgba(255, 255, 255, 0.04);
+    border-left: 3px solid #f44336;
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    font-size: 13.5px;
+  }
+  .flag-item.priority-4, .flag-item.priority-5, .flag-item.priority-6 { border-left-color: #f5a623; }
+  .flag-badge {
+    background: rgba(244, 67, 54, 0.2); color: #f44336;
+    border-radius: 10px; padding: 2px 8px; font-size: 11px; font-weight: 700; flex-shrink: 0;
+  }
+  .priority-4 .flag-badge, .priority-5 .flag-badge, .priority-6 .flag-badge { background: rgba(245, 166, 35, 0.2); color: #f5a623; }
+  .no-flags { color: #4CAF50; font-size: 13.5px; margin-top: 14px; }
+
+  /* Season status */
+  .radio-row { display: flex; gap: 16px; margin-top: 8px; }
+  .radio-option { display: flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; }
+  .radio-option input { width: auto; }
+  #season-date-field { display: none; }
+
+  .btn-row { display: flex; gap: 10px; margin-top: 20px; }
+  .btn-primary {
+    background: linear-gradient(135deg, #fcba39 0%, #f5a623 100%);
+    color: #111521; border: none; border-radius: 8px;
+    padding: 12px 24px; font-size: 14px; font-weight: 700; cursor: pointer;
+  }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-secondary {
+    background: rgba(255, 255, 255, 0.08); color: rgba(255,255,255,0.85);
+    border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px;
+    padding: 12px 24px; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  #generate-status { margin-top: 14px; font-size: 14px; font-weight: 600; }
+  #generate-status.success { color: #4CAF50; }
+  #generate-status.error { color: #f44336; }
+  #generate-status.working { color: #fcba39; }
+
+  /* Find Programming tab */
+  .filter-row { margin-bottom: 16px; }
+  .program-list-item {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;
+  }
+  .program-list-name { font-weight: 700; font-size: 15px; }
+  .program-list-meta { color: rgba(255,255,255,0.6); font-size: 12.5px; margin-top: 2px; }
+  .link-btn {
+    background: none; border: 1px solid rgba(255,255,255,0.2); color: rgba(255,255,255,0.85);
+    border-radius: 6px; padding: 8px 14px; cursor: pointer; font-size: 13px; text-decoration: none;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="logo"><img src="RBI_HEAT_Logo.svg" alt="RBI HEAT"></div>
+  <h1>RBI HEAT — S&C Program Generator</h1>
+  <div class="subtitle">PREVIEW MODE — mock data, no backend. For look-and-feel only.</div>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="generate">Generate Program</button>
+    <button class="tab-btn" data-tab="find">Find Programming</button>
+  </div>
+
+  <!-- ============ TAB 1: GENERATE ============ -->
+  <div class="tab-panel active" id="tab-generate">
+    <div class="card">
+      <label>Athlete</label>
+      <div class="typeahead-wrap">
+        <input type="text" id="athlete-search" placeholder="Start typing an athlete's name...">
+        <div class="typeahead-results" id="typeahead-results"></div>
+      </div>
+
+      <div class="athlete-summary" id="athlete-summary">
+        <div class="athlete-name" id="athlete-name"></div>
+        <div class="athlete-meta" id="athlete-meta"></div>
+        <div id="staleness-banner-wrap"></div>
+        <div class="flag-list" id="flag-list"></div>
+      </div>
+    </div>
+
+    <div class="card" id="generate-options" style="display:none;">
+      <label>Season Status</label>
+      <div class="radio-row">
+        <label class="radio-option"><input type="radio" name="season-status" value="offseason" checked> Off-season</label>
+        <label class="radio-option"><input type="radio" name="season-status" value="in_season"> In-season</label>
+      </div>
+
+      <div id="season-date-field">
+        <label id="season-date-label">Expected Season Start (optional)</label>
+        <input type="date" id="season-date">
+      </div>
+
+      <label>Days per Week</label>
+      <select id="days-per-week">
+        <option value="3">3 days/week</option>
+        <option value="4">4 days/week</option>
+      </select>
+
+      <div class="btn-row">
+        <button class="btn-primary" id="generate-btn">Generate 12-Week Program</button>
+      </div>
+      <div id="generate-status"></div>
+    </div>
+  </div>
+
+  <!-- ============ TAB 2: FIND PROGRAMMING ============ -->
+  <div class="tab-panel" id="tab-find">
+    <div class="card">
+      <div class="filter-row">
+        <input type="text" id="find-search" placeholder="Search by athlete name...">
+      </div>
+      <div id="program-results"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================================
+// PREVIEW MODE — no backend, no DB. Mock data only.
+// ============================================================================
+
+const MOCK_ATHLETES = [
+  {
+    id: 1, name: "Jason Peele", position: "RHP / 3B", handedness: "Right",
+    most_recent_test_date: "2026-09-04",
+    flags: [
+      { priority: 1, description: "IMTP Peak Vertical Force asymmetry 24.0% (right weaker)" },
+      { priority: 2, description: "IMTP RFD - 150ms declined 12.2% from previous test" },
+      { priority: 3, description: "Squat Jump relative landing force low (85.0 N/cm, threshold 100.0)" },
+      { priority: 4, description: "RSI-modified low (0.25, below 0.30 per Sole, Suchomel & Stone 2018)" },
+    ],
+  },
+  {
+    id: 2, name: "Marcus Reyes", position: "OF", handedness: "Left",
+    most_recent_test_date: "2026-07-10",  // stale — > 8 weeks before "today"
+    flags: [
+      { priority: 6, description: "CMJ jump height 41.2cm with low landing force (88.0 N/cm) — output/absorption gap" },
+    ],
+  },
+  {
+    id: 3, name: "Tyler Brooks", position: "C", handedness: "Right",
+    most_recent_test_date: "2026-08-30",
+    flags: [],
+  },
+];
+
+const MOCK_PROGRAMS = [
+  { program_id: 1, athlete_name: "Jason Peele", created_at: "2026-08-01", days_per_week: 4, pdf_name: "Peele_Jason_SC_Program_2026-08-01.pdf" },
+  { program_id: 2, athlete_name: "Jason Peele", created_at: "2026-05-10", days_per_week: 4, pdf_name: "Peele_Jason_SC_Program_2026-05-10.pdf" },
+  { program_id: 3, athlete_name: "Marcus Reyes", created_at: "2026-07-15", days_per_week: 3, pdf_name: "Reyes_Marcus_SC_Program_2026-07-15.pdf" },
+];
+
+const TODAY = new Date("2026-09-04");
+let selectedAthlete = null;
+
+// ---------- Tabs ----------
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    if (btn.dataset.tab === 'find') renderProgramList();
+  });
+});
+
+// ---------- Athlete typeahead ----------
+const athleteSearch = document.getElementById('athlete-search');
+const typeaheadResults = document.getElementById('typeahead-results');
+
+athleteSearch.addEventListener('input', () => {
+  const q = athleteSearch.value.trim().toLowerCase();
+  if (q.length < 2) { typeaheadResults.style.display = 'none'; return; }
+  const results = MOCK_ATHLETES.filter(a => a.name.toLowerCase().includes(q));
+  if (!results.length) { typeaheadResults.style.display = 'none'; return; }
+  typeaheadResults.innerHTML = results.map(a => `<div class="typeahead-option" data-id="${a.id}">${a.name} — ${a.position}</div>`).join('');
+  typeaheadResults.style.display = 'block';
+  typeaheadResults.querySelectorAll('.typeahead-option').forEach(el => {
+    el.addEventListener('click', () => selectAthlete(parseInt(el.dataset.id, 10)));
+  });
+});
+document.addEventListener('click', e => {
+  if (!e.target.closest('.typeahead-wrap')) typeaheadResults.style.display = 'none';
+});
+
+function daysSince(dateStr) {
+  return Math.round((TODAY - new Date(dateStr)) / (1000 * 60 * 60 * 24));
+}
+
+function selectAthlete(id) {
+  selectedAthlete = MOCK_ATHLETES.find(a => a.id === id);
+  athleteSearch.value = selectedAthlete.name;
+  typeaheadResults.style.display = 'none';
+
+  document.getElementById('athlete-name').textContent = selectedAthlete.name;
+  document.getElementById('athlete-meta').textContent =
+    `${selectedAthlete.position} · Bats/Throws: ${selectedAthlete.handedness} · Last test: ${selectedAthlete.most_recent_test_date}`;
+
+  const staleDays = daysSince(selectedAthlete.most_recent_test_date);
+  const bannerWrap = document.getElementById('staleness-banner-wrap');
+  if (staleDays > 56) { // 8 weeks
+    bannerWrap.innerHTML = `<div class="staleness-banner">⚠ Most recent test is ${Math.round(staleDays / 7)} weeks old. You can still generate a program, but consider a fresh test first.</div>`;
+  } else {
+    bannerWrap.innerHTML = '';
+  }
+
+  const flagList = document.getElementById('flag-list');
+  if (selectedAthlete.flags.length === 0) {
+    flagList.innerHTML = '<div class="no-flags">✓ No Priority Stack flags — no red flags on the most recent test.</div>';
+  } else {
+    flagList.innerHTML = selectedAthlete.flags.map(f => `
+      <div class="flag-item priority-${f.priority}">
+        <span class="flag-badge">P${f.priority}</span>
+        <span>${f.description}</span>
+      </div>
+    `).join('');
+  }
+
+  document.getElementById('athlete-summary').style.display = 'block';
+  document.getElementById('generate-options').style.display = 'block';
+}
+
+// ---------- Season status toggle ----------
+document.querySelectorAll('input[name="season-status"]').forEach(radio => {
+  radio.addEventListener('change', () => {
+    const status = document.querySelector('input[name="season-status"]:checked').value;
+    document.getElementById('season-date-field').style.display = 'block';
+    document.getElementById('season-date-label').textContent =
+      status === 'offseason' ? 'Expected Season Start (optional)' : 'Expected Season End (optional)';
+  });
+});
+// Show the date field by default since off-season is checked initially
+document.getElementById('season-date-field').style.display = 'block';
+
+// ---------- Generate (mock) ----------
+document.getElementById('generate-btn').addEventListener('click', () => {
+  if (!selectedAthlete) return;
+  const statusEl = document.getElementById('generate-status');
+  statusEl.textContent = 'Generating program...';
+  statusEl.className = 'working';
+
+  setTimeout(() => {
+    const filename = `${selectedAthlete.name.replace(' ', '_')}_SC_Program_${TODAY.toISOString().slice(0, 10)}.pdf`;
+    // Trigger a real (placeholder) file download to demonstrate the auto-download UX
+    const blob = new Blob(
+      [`This is a placeholder for the generated PDF: ${filename}\n(Preview mode — no real program was generated.)`],
+      { type: 'text/plain' }
+    );
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename.replace('.pdf', '.txt');
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+
+    statusEl.textContent = `Program generated and downloaded (preview only — also saved to GCS in the real app).`;
+    statusEl.className = 'success';
+  }, 900);
+});
+
+// ---------- Find Programming ----------
+document.getElementById('find-search').addEventListener('input', renderProgramList);
+
+function renderProgramList() {
+  const q = document.getElementById('find-search').value.trim().toLowerCase();
+  const results = MOCK_PROGRAMS.filter(p => p.athlete_name.toLowerCase().includes(q));
+  const container = document.getElementById('program-results');
+  if (!results.length) { container.innerHTML = '<p style="color:rgba(255,255,255,0.5)">No programs found.</p>'; return; }
+  container.innerHTML = results.map(p => `
+    <div class="program-list-item">
+      <div>
+        <div class="program-list-name">${p.athlete_name}</div>
+        <div class="program-list-meta">Created ${p.created_at} · ${p.days_per_week} days/week</div>
+      </div>
+      <button class="link-btn" onclick="alert('Preview only — would download ${p.pdf_name}')">Download PDF</button>
+    </div>
+  `).join('');
+}
+</script>
+</body>
+</html>
