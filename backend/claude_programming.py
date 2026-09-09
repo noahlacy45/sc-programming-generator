@@ -66,10 +66,14 @@ TRAINING SEGMENTS ({days_per_week} days/week — days {', '.join(day_letters)}):
 
 For EACH segment, choose ONE exercise per day per slot from the eligible pool below. The exercise stays the same across every week within a segment (only sets/reps change week to week, and that's handled separately — you're only choosing WHICH exercise). Exercises CAN differ by day within a segment (e.g. Day A's 2a could differ from Day C's 2a), but avoid needless repetition — don't pick the identical drill for the same slot on every single day if the pool offers real variety.
 
+IMPORTANT — vary exercises ACROSS segments too, not just across days within one segment. Each off-season block is a new 4-week block with its own training emphasis (see the lower-body pattern named for each segment above) — it should feel like a distinct rotation, not a continuation of the same exact program with only the numbers changing. When the pool for a slot has more than one real option, avoid picking the same exercise for that slot in Block 1, Block 2, and Block 3 — reserve genuine repetition for slots where the pool is too thin to do otherwise (e.g. only one eligible drill exists for that slot).
+
 ELIGIBLE DRILLS PER SLOT (choose ONLY from these by drill_id — do not invent a drill_id):
 {drill_pools_text}
 
 If none of the eligible options in a slot are a good fit for this athlete's needs (e.g. nothing addresses a flagged asymmetry, or the pool for a slot is empty), still pick the best available real option so the slot isn't left blank, AND separately note the gap in "suggested_new_drills" — do not put an invented drill directly into the program itself.
+
+For EACH exercise you choose, also write a SHORT coaching note (under 12 words) — a specific technical/intent cue, not a generic restatement of the exercise name. Match the terse style of: "Light load; max intent every rep", "Single-leg hinge; left side emphasis for symmetry", "Retract and depress scap; increase load W2 to W3".
 
 Respond with ONLY valid JSON, no other text, in exactly this shape:
 {{
@@ -84,8 +88,12 @@ Respond with ONLY valid JSON, no other text, in exactly this shape:
     {{
       "week_start": <int>, "week_end": <int>,
       "days": {{
-        "A": {{"1a": <drill_id>, "1b": <drill_id>, "1c": <drill_id>, "2a": <drill_id>, "2b": <drill_id>, "2c": <drill_id>, "3a": <drill_id>, "3b": <drill_id>, "3c": <drill_id>}},
-        "B": {{ ... same 9 slots ... }}
+        "A": {{
+          "1a": {{"drill_id": <int>, "note": "..."}}, "1b": {{"drill_id": <int>, "note": "..."}}, "1c": {{"drill_id": <int>, "note": "..."}},
+          "2a": {{"drill_id": <int>, "note": "..."}}, "2b": {{"drill_id": <int>, "note": "..."}}, "2c": {{"drill_id": <int>, "note": "..."}},
+          "3a": {{"drill_id": <int>, "note": "..."}}, "3b": {{"drill_id": <int>, "note": "..."}}, "3c": {{"drill_id": <int>, "note": "..."}}
+        }},
+        "B": {{ ... same 9 slots, same {{"drill_id", "note"}} shape ... }}
       }}
     }}
   ],
@@ -102,7 +110,19 @@ def call_claude(client: anthropic.Anthropic, prompt: str) -> dict[str, Any]:
         max_tokens=8000,
         messages=[{"role": "user", "content": prompt}],
     )
-    text = response.content[0].text.strip()
+
+    # Don't assume content[0] is the text block — a thinking block (or any
+    # other non-text block) can come first, whose .text is None rather than
+    # a string, which is exactly what produced the 'NoneType' object has no
+    # attribute 'strip' error. Find the actual text block instead.
+    text_blocks = [block.text for block in response.content if getattr(block, "type", None) == "text" and block.text]
+    if not text_blocks:
+        raise ValueError(
+            f"Claude's response had no usable text block. stop_reason={response.stop_reason!r}, "
+            f"content block types={[getattr(b, 'type', type(b).__name__) for b in response.content]!r}"
+        )
+    text = text_blocks[0].strip()
+
     # Defensive: strip markdown code fences if the model wraps the JSON anyway
     if text.startswith("```"):
         text = text.split("```")[1]
@@ -124,7 +144,8 @@ def validate_response(parsed: dict, drill_pools: dict[str, list[dict]]) -> dict:
 
     for segment in parsed.get("segments", []):
         for day, slots in segment["days"].items():
-            for slot_code, drill_id in slots.items():
+            for slot_code, choice in slots.items():
+                drill_id = choice.get("drill_id") if isinstance(choice, dict) else choice
                 if drill_id not in valid_ids_by_slot.get(slot_code, set()):
                     raise ValueError(
                         f"Claude chose drill_id {drill_id} for slot {slot_code} "

@@ -72,11 +72,13 @@ def patch_mock_cursor():
 class MockAnthropicContent:
     def __init__(self, text):
         self.text = text
+        self.type = "text"
 
 
 class MockAnthropicResponse:
     def __init__(self, text):
         self.content = [MockAnthropicContent(text)]
+        self.stop_reason = "end_turn"
 
 
 class MockAnthropicMessages:
@@ -85,7 +87,7 @@ class MockAnthropicMessages:
             "1a": 101, "1b": 102, "1c": 103, "2a": 104, "2b": 105,
             "2c": 106, "3a": 107, "3b": 108, "3c": 109,
         }
-        day_block = {slot: drill_id for slot, drill_id in slot_to_drill.items()}
+        day_block = {slot: {"drill_id": drill_id, "note": f"Mock coaching note for slot {slot}"} for slot, drill_id in slot_to_drill.items()}
 
         response_json = {
             "assessment_summary": {

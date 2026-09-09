@@ -19,10 +19,12 @@ from fpdf import FPDF
 
 from periodization import ALL_SLOTS, SLOT_LABEL
 
-SLOT_COL_WIDTH = 14
-EXERCISE_COL_WIDTH = 55
-WEEK_COL_WIDTH = 24
-NOTES_COL_WIDTH = 30
+SLOT_COL_WIDTH = 12
+EXERCISE_COL_WIDTH = 50
+WEEK_SETS_COL_WIDTH = 12
+WEEK_REPS_COL_WIDTH = 18
+NOTES_COL_WIDTH = 85
+LINK_COLOR = (30, 90, 200)
 
 # fpdf2's core Helvetica font only supports latin-1. Claude's narrative text
 # (and potentially drill names/notes) will naturally contain smart-quote
@@ -141,7 +143,7 @@ def _priority_flags(pdf: ProgramPDF, flags: list[dict]):
 
 def _segment_table(pdf: ProgramPDF, segment: dict, day_letter: str, day_data: dict, week_labels: list[str]):
     """
-    day_data: {slot_code: {"drill_name": str, "video_link": str|None,
+    day_data: {slot_code: {"drill_name": str, "video_link": str|None, "note": str|None,
                             "weeks": {week_label: {"sets":..,"reps":..}}}}
     """
     is_in_season = week_labels == ["Maintain"]
@@ -160,25 +162,44 @@ def _segment_table(pdf: ProgramPDF, segment: dict, day_letter: str, day_data: di
     pdf.cell(SLOT_COL_WIDTH, 6, "Slot", border=1, fill=True)
     pdf.cell(EXERCISE_COL_WIDTH, 6, "Exercise", border=1, fill=True)
     for label in week_labels:
-        pdf.cell(WEEK_COL_WIDTH, 6, label, border=1, fill=True, align="C")
+        # With only one week-group (in-season "Maintain"), the prefix adds
+        # nothing and "Maintain Sets"/"Maintain Reps" overflows the column
+        # width the multi-week case uses — just "Sets"/"Reps" is unambiguous.
+        sets_header = "Sets" if len(week_labels) == 1 else f"{label} Sets"
+        reps_header = "Reps" if len(week_labels) == 1 else f"{label} Reps"
+        pdf.cell(WEEK_SETS_COL_WIDTH, 6, sets_header, border=1, fill=True, align="C")
+        pdf.cell(WEEK_REPS_COL_WIDTH, 6, reps_header, border=1, fill=True, align="C")
+    pdf.cell(NOTES_COL_WIDTH, 6, "Coaching Notes", border=1, fill=True)
     pdf.ln()
 
     pdf.set_font("Helvetica", "", 8)
     for slot_code in ALL_SLOTS:
         row = day_data.get(slot_code, {})
         pdf.cell(SLOT_COL_WIDTH, 6, slot_code, border=1)
-        exercise_name = pdf_safe(row.get("drill_name") or "-")[:32]
-        pdf.cell(EXERCISE_COL_WIDTH, 6, exercise_name, border=1)
+
+        exercise_name = pdf_safe(row.get("drill_name") or "-")[:36]
+        video_link = row.get("video_link")
+        if video_link:
+            pdf.set_text_color(*LINK_COLOR)
+            pdf.cell(EXERCISE_COL_WIDTH, 6, exercise_name, border=1, link=video_link)
+            pdf.set_text_color(0, 0, 0)
+        else:
+            pdf.cell(EXERCISE_COL_WIDTH, 6, exercise_name, border=1)
+
         for label in week_labels:
             wk = row.get("weeks", {}).get(label, {})
             sets = wk.get("sets")
-            if sets is None:
-                cell_text = "-"
-            elif is_in_season:
-                cell_text = f"{sets} sets"  # full "reps" text is the caption above, not the cell
-            else:
-                cell_text = pdf_safe(f"{sets}x{wk.get('reps')}")
-            pdf.cell(WEEK_COL_WIDTH, 6, cell_text, border=1, align="C")
+            reps = wk.get("reps")
+            sets_text = pdf_safe(str(sets)) if sets is not None else "-"
+            # In-season reps carries a long documentation sentence (see
+            # periodization.get_in_season_prescription) — the italic caption
+            # above the table already explains it; the cell just needs "Maintain".
+            reps_text = "Maintain" if is_in_season else (pdf_safe(str(reps)) if reps is not None else "-")
+            pdf.cell(WEEK_SETS_COL_WIDTH, 6, sets_text, border=1, align="C")
+            pdf.cell(WEEK_REPS_COL_WIDTH, 6, reps_text, border=1, align="C")
+
+        note_text = pdf_safe(row.get("note") or "")[:60]
+        pdf.cell(NOTES_COL_WIDTH, 6, note_text, border=1)
         pdf.ln()
     pdf.ln(4)
 
@@ -196,7 +217,7 @@ def render_program_pdf(
     """
     segments_rendered: list of {
         "week_numbers": [...], "phase": ..., "block_number": ...,
-        "days": {day_letter: {slot_code: {"drill_name", "video_link", "weeks": {week_label: {"sets","reps"}}}}}
+        "days": {day_letter: {slot_code: {"drill_name", "video_link", "note", "weeks": {week_label: {"sets","reps"}}}}}
     }
     """
     pdf = ProgramPDF()
@@ -210,8 +231,13 @@ def render_program_pdf(
 
     for segment in segments_rendered:
         weeks = segment["week_numbers"]
-        week_labels = [f"W{w}" for w in weeks] if segment["phase"] == "offseason" else ["Maintain"]
-        pdf.add_page()
+        if segment["phase"] == "offseason":
+            # Off-season segments are always exactly 4 weeks (see
+            # periodization.WEEKS_PER_BLOCK) — the last one is always deload.
+            week_labels = [f"W{w}" for w in weeks[:-1]] + ["DL"]
+        else:
+            week_labels = ["Maintain"]
+        pdf.add_page(orientation="L")  # landscape — needed for separate Sets/Reps/Notes columns
         pdf.set_font("Helvetica", "B", 13)
         phase_title = (
             f"Block {segment['block_number']} - weeks {weeks[0]}-{weeks[-1]}"
@@ -222,21 +248,6 @@ def render_program_pdf(
         for day_letter in day_letters:
             day_data = segment["days"].get(day_letter, {})
             _segment_table(pdf, segment, day_letter, day_data, week_labels)
-
-    # Video link reference list, since fpdf2 table cells above are too narrow for full URLs
-    pdf.add_page()
-    pdf.set_font("Helvetica", "B", 12)
-    pdf.cell(0, 8, "Video Reference Links", ln=True)
-    pdf.set_font("Helvetica", "", 8.5)
-    seen = set()
-    for segment in segments_rendered:
-        for day_data in segment["days"].values():
-            for slot_code, row in day_data.items():
-                name = row.get("drill_name")
-                link = row.get("video_link")
-                if name and link and name not in seen:
-                    seen.add(name)
-                    safe_multi_cell(pdf, 0, 5, pdf_safe(f"{name}: {link}"))
 
     output = pdf.output(dest="S")
     return bytes(output)

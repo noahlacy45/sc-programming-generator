@@ -97,20 +97,32 @@ def _build_segments_rendered(
         for day_letter in day_letters:
             claude_day = claude_seg["days"].get(day_letter, {})
             slots_out = {}
-            for slot_code, drill_id in claude_day.items():
+            for slot_code, choice in claude_day.items():
+                # Backward-compatible with a bare int in case Claude ever
+                # returns the old shape despite the updated prompt.
+                if isinstance(choice, dict):
+                    drill_id, note = choice.get("drill_id"), choice.get("note")
+                else:
+                    drill_id, note = choice, None
                 drill_info = drill_lookup.get(drill_id, {"drill": f"Unknown (id {drill_id})", "video_link": None})
                 weeks_data = {}
                 if seg["phase"] == "offseason":
                     for week_num in weeks:
                         week_entry = weeks_by_number[week_num]
                         presc = periodization.get_prescription(slot_code, week_entry["block_number"], week_entry["week_in_block"])
-                        weeks_data[f"W{week_num}"] = {"sets": presc["sets"], "reps": presc["reps"]}
+                        # Matches program_pdf.py's week_labels: the last week
+                        # of every off-season segment is always deload (see
+                        # periodization.WEEKS_PER_BLOCK), labeled "Deload"
+                        # there rather than e.g. "W4" — keep these in sync.
+                        label = "DL" if week_num == weeks[-1] else f"W{week_num}"
+                        weeks_data[label] = {"sets": presc["sets"], "reps": presc["reps"]}
                 else:
                     presc = periodization.get_in_season_prescription(slot_code)
                     weeks_data["Maintain"] = {"sets": presc["sets"], "reps": presc["reps"]}
                 slots_out[slot_code] = {
                     "drill_name": drill_info["drill"],
                     "video_link": drill_info["video_link"],
+                    "note": note,
                     "weeks": weeks_data,
                 }
             days_out[day_letter] = slots_out
