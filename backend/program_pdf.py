@@ -145,8 +145,11 @@ def _segment_table(pdf: ProgramPDF, segment: dict, day_letter: str, day_data: di
     """
     day_data: {slot_code: {"drill_name": str, "video_link": str|None, "note": str|None,
                             "weeks": {week_label: {"sets":..,"reps":..}}}}
+    Both phases produce the same 4-label (W1/W2/W3/DL) shape now — in-season
+    segments are also exactly 4 weeks (see periodization.build_week_schedule),
+    just with flat/capped values instead of progression.
     """
-    is_in_season = week_labels == ["Maintain"]
+    is_in_season = segment["phase"] == "in_season"
 
     pdf.set_font("Helvetica", "B", 11)
     weeks = segment["week_numbers"]
@@ -162,13 +165,8 @@ def _segment_table(pdf: ProgramPDF, segment: dict, day_letter: str, day_data: di
     pdf.cell(SLOT_COL_WIDTH, 6, "Slot", border=1, fill=True)
     pdf.cell(EXERCISE_COL_WIDTH, 6, "Exercise", border=1, fill=True)
     for label in week_labels:
-        # With only one week-group (in-season "Maintain"), the prefix adds
-        # nothing and "Maintain Sets"/"Maintain Reps" overflows the column
-        # width the multi-week case uses — just "Sets"/"Reps" is unambiguous.
-        sets_header = "Sets" if len(week_labels) == 1 else f"{label} Sets"
-        reps_header = "Reps" if len(week_labels) == 1 else f"{label} Reps"
-        pdf.cell(WEEK_SETS_COL_WIDTH, 6, sets_header, border=1, fill=True, align="C")
-        pdf.cell(WEEK_REPS_COL_WIDTH, 6, reps_header, border=1, fill=True, align="C")
+        pdf.cell(WEEK_SETS_COL_WIDTH, 6, f"{label} Sets", border=1, fill=True, align="C")
+        pdf.cell(WEEK_REPS_COL_WIDTH, 6, f"{label} Reps", border=1, fill=True, align="C")
     pdf.cell(NOTES_COL_WIDTH, 6, "Coaching Notes", border=1, fill=True)
     pdf.ln()
 
@@ -231,12 +229,11 @@ def render_program_pdf(
 
     for segment in segments_rendered:
         weeks = segment["week_numbers"]
-        if segment["phase"] == "offseason":
-            # Off-season segments are always exactly 4 weeks (see
-            # periodization.WEEKS_PER_BLOCK) — the last one is always deload.
-            week_labels = [f"W{w}" for w in weeks[:-1]] + ["DL"]
-        else:
-            week_labels = ["Maintain"]
+        # Both phases are exactly 4 weeks per segment now (see
+        # periodization.build_week_schedule) — the last one is always
+        # labeled DL, whether it's an off-season deload or just the 4th
+        # week of an in-season maintenance chunk.
+        week_labels = [f"W{w}" for w in weeks[:-1]] + ["DL"]
         pdf.add_page(orientation="L")  # landscape — needed for separate Sets/Reps/Notes columns
         pdf.set_font("Helvetica", "B", 13)
         phase_title = (

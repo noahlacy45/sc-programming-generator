@@ -105,20 +105,21 @@ def _build_segments_rendered(
                 else:
                     drill_id, note = choice, None
                 drill_info = drill_lookup.get(drill_id, {"drill": f"Unknown (id {drill_id})", "video_link": None})
+                # Same per-week breakdown for both phases now — in-season
+                # segments are also exactly 4 weeks (see build_week_schedule),
+                # just with flat/capped values instead of progression.
                 weeks_data = {}
-                if seg["phase"] == "offseason":
-                    for week_num in weeks:
-                        week_entry = weeks_by_number[week_num]
+                for week_num in weeks:
+                    week_entry = weeks_by_number[week_num]
+                    if seg["phase"] == "offseason":
                         presc = periodization.get_prescription(slot_code, week_entry["block_number"], week_entry["week_in_block"])
-                        # Matches program_pdf.py's week_labels: the last week
-                        # of every off-season segment is always deload (see
-                        # periodization.WEEKS_PER_BLOCK), labeled "Deload"
-                        # there rather than e.g. "W4" — keep these in sync.
-                        label = "DL" if week_num == weeks[-1] else f"W{week_num}"
-                        weeks_data[label] = {"sets": presc["sets"], "reps": presc["reps"]}
-                else:
-                    presc = periodization.get_in_season_prescription(slot_code)
-                    weeks_data["Maintain"] = {"sets": presc["sets"], "reps": presc["reps"]}
+                    else:
+                        presc = periodization.get_in_season_prescription(slot_code, week_entry["week_in_block"])
+                    # Matches program_pdf.py's week_labels: the last week of
+                    # every segment (either phase) is labeled "DL" there
+                    # rather than e.g. "W4" — keep these in sync.
+                    label = "DL" if week_num == weeks[-1] else f"W{week_num}"
+                    weeks_data[label] = {"sets": presc["sets"], "reps": presc["reps"]}
                 slots_out[slot_code] = {
                     "drill_name": drill_info["drill"],
                     "video_link": drill_info["video_link"],

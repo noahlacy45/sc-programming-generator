@@ -68,6 +68,10 @@ def patch_mock_cursor():
 # Mock Claude client — returns a fixed, valid response instead of calling
 # the real API. Picks the FIRST eligible drill for every slot on every day,
 # which is enough to prove the pipeline (not Claude's actual judgment).
+# Builds its response dynamically from whatever segments actually result
+# from periodization, rather than hardcoding a fixed segment count — that
+# hardcoding was exactly the kind of assumption that would have hidden the
+# "pure in-season doesn't split into 4-week chunks" bug this test now covers.
 # =============================================================================
 class MockAnthropicContent:
     def __init__(self, text):
@@ -82,6 +86,10 @@ class MockAnthropicResponse:
 
 
 class MockAnthropicMessages:
+    def __init__(self, segments, day_letters):
+        self.segments = segments
+        self.day_letters = day_letters
+
     def create(self, model, max_tokens, messages):
         slot_to_drill = {
             "1a": 101, "1b": 102, "1c": 103, "2a": 104, "2b": 105,
@@ -98,54 +106,78 @@ class MockAnthropicMessages:
                 "overall_paragraph": "Overall, this cycle should prioritize right-side unilateral loading to close the asymmetry gap, reactive/plyometric work to build reactive strength, and eccentric landing control work - all while maintaining Jason's two-way workload demands.",
             },
             "segments": [
-                {"week_start": 1, "week_end": 4, "days": {d: dict(day_block) for d in ["A", "B", "C", "D"]}},
-                {"week_start": 5, "week_end": 12, "days": {d: dict(day_block) for d in ["A", "B", "C", "D"]}},
+                {
+                    "week_start": seg["week_numbers"][0],
+                    "week_end": seg["week_numbers"][-1],
+                    "days": {d: dict(day_block) for d in self.day_letters},
+                }
+                for seg in self.segments
             ],
-            "suggested_new_drills": [
-                {"slot": "2a", "week_start": 1, "week_end": 4, "day": "C",
-                 "suggested_name": "Right-Leg-Emphasis Front Squat Variation",
-                 "reason": "Pool only has generic squat options; something with an explicit unilateral loading bias would better target the flagged right-side weakness."}
-            ],
+            "suggested_new_drills": [],
         }
         return MockAnthropicResponse(json.dumps(response_json))
 
 
 class MockAnthropicClient:
-    def __init__(self):
-        self.messages = MockAnthropicMessages()
+    def __init__(self, segments, day_letters):
+        self.messages = MockAnthropicMessages(segments, day_letters)
 
 
-def main():
+def run_scenario(label, season_status, days_per_week, season_start_date=None, season_end_date=None, generation_date=None):
     patch_mock_cursor()
     from demo_priority_stack import MockConnection
+    import periodization
+    import claude_programming
 
+    generation_date = generation_date or date(2026, 9, 4)
     conn = MockConnection()
-    client = MockAnthropicClient()
+
+    # Precompute the real segment structure so the mock client can build a
+    # response shaped to match — this is what actually exercises whatever
+    # periodization.build_week_schedule() produces, instead of assuming it.
+    schedule = periodization.build_week_schedule(generation_date, season_status, season_start_date, season_end_date)
+    segments = periodization.group_into_segments(schedule)
+    day_letters = claude_programming.DAY_LETTERS[days_per_week]
+
+    print(f"\n{'=' * 70}\n{label}\n{'=' * 70}")
+    print(f"Segments produced: {[(s['phase'], s['week_numbers'][0], s['week_numbers'][-1]) for s in segments]}")
+
+    client = MockAnthropicClient(segments, day_letters)
 
     result = program_builder.build_program(
         conn=conn,
         anthropic_client=client,
         player_id=1,
-        season_status="offseason",
-        days_per_week=4,
-        season_start_date=date(2026, 10, 16),
-        generation_date=date(2026, 9, 4),
+        season_status=season_status,
+        days_per_week=days_per_week,
+        season_start_date=season_start_date,
+        season_end_date=season_end_date,
+        generation_date=generation_date,
     )
 
-    print("=" * 70)
-    print("FULL PIPELINE TEST")
-    print("=" * 70)
     print(f"Athlete: {result['athlete']['name']}")
-    print(f"Filename: {result['filename']}")
     print(f"PDF size: {len(result['pdf_bytes'])} bytes")
-    print(f"Staleness warning: {result['staleness_warning']}")
-    print(f"Suggested new drills: {len(result['suggested_new_drills'])}")
-    for s in result["suggested_new_drills"]:
-        print(f"  - {s['suggested_name']}: {s['reason']}")
 
-    with open("test_output.pdf", "wb") as f:
+    filename = f"test_output_{label.lower().replace(' ', '_')}.pdf"
+    with open(filename, "wb") as f:
         f.write(result["pdf_bytes"])
-    print("\nWrote test_output.pdf — open it to check the actual rendered layout.")
+    print(f"Wrote {filename}")
+
+
+def main():
+    # Scenario 1: off-season with a mid-cycle transition to in-season (the
+    # original test scenario — confirms that still works after this change)
+    run_scenario(
+        "offseason_with_transition", "offseason", 4,
+        season_start_date=date(2026, 10, 16),
+    )
+
+    # Scenario 2: pure in-season, no end date — this is the exact case that
+    # was collapsing into one flat 12-week segment instead of three 4-week
+    # blocks. Should now produce 3 segments (weeks 1-4, 5-8, 9-12).
+    run_scenario(
+        "pure_in_season", "in_season", 3,
+    )
 
 
 if __name__ == "__main__":

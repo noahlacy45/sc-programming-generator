@@ -99,18 +99,32 @@ def get_prescription(slot_code: str, block_number: int, week_in_block: int) -> d
     }
 
 
-def get_in_season_prescription(slot_code: str) -> dict:
+def get_in_season_prescription(slot_code: str, week_in_block: int) -> dict:
     """
     In-season: hold steady, don't push new intensity. Volume capped per slot;
-    arm care (3b) explicitly excluded from the cut.
+    arm care (3b) explicitly excluded from any cut. Week 4 of each 4-week
+    in-season chunk is a lighter recovery week (same idea as off-season
+    deload, smaller magnitude) — this is what gives the per-week columns
+    real meaning instead of showing the same number 4 times.
     """
+    is_recovery_week = week_in_block == 4
+    sets = IN_SEASON_SET_CAP[slot_code]
+    if is_recovery_week:
+        sets = max(sets - 1, 1)
+        if slot_code == "3b":
+            sets = max(sets, 2)  # arm care floor, same rule as off-season deload
+
     return {
         "slot": slot_code,
         "label": SLOT_LABEL[slot_code],
-        "sets": IN_SEASON_SET_CAP[slot_code],
-        "reps": "maintain — hold prior off-season working reps, do not chase new PRs",
-        "is_deload": False,
-        "load_note": "maintain load; the goal is preserving off-season gains through the season, not building",
+        "sets": sets,
+        "reps": "Maintain",
+        "is_deload": is_recovery_week,
+        "load_note": (
+            "lighter recovery week — reduce sets slightly, hold load steady"
+            if is_recovery_week else
+            "maintain load; the goal is preserving off-season gains through the season, not building"
+        ),
     }
 
 
@@ -121,8 +135,14 @@ def build_week_schedule(
     season_end_date: Optional[date] = None,    # in_season -> offseason transition (mirror case)
 ) -> list[dict]:
     """
-    Returns one entry per week (1-12) with its phase, block number (if
-    off-season), and whether it's a deload week.
+    Returns one entry per week (1-12) with its phase, block number, and
+    whether it's a deload week. block_number/week_in_block are assigned for
+    BOTH phases (not just off-season) — in-season time also splits into
+    4-week chunks the same way off-season blocks do, so a purely in-season
+    12-week cycle still produces three separate 4-week segments (weeks 1-4,
+    5-8, 9-12) with their own day A/B/C tables, rather than one flat
+    12-week block. This is what lets exercises vary every 4 weeks even
+    during the season, not just during an off-season build.
 
     Two transition directions are handled, each only relevant to the
     opposite starting status:
@@ -137,7 +157,8 @@ def build_week_schedule(
         turns out to matter in practice.
 
     If no relevant date is given, or it falls outside this 12-week window,
-    the whole cycle just uses whichever status was given, throughout.
+    the whole cycle just uses whichever status was given, throughout —
+    still split into 4-week chunks either way.
     """
     weeks = []
 
@@ -162,7 +183,19 @@ def build_week_schedule(
                     "is_deload": week_in_block == 4,
                 })
             else:
-                weeks.append({"week_number": week_num, "phase": "in_season", "block_number": None, "is_deload": False})
+                # Still split into 4-week chunks even though every chunk
+                # uses the same maintenance prescription — this is what
+                # gives Claude a fresh segment to pick different exercises
+                # for every 4 weeks, matching how off-season blocks work.
+                block_number = ((week_num - 1) // WEEKS_PER_BLOCK) + 1
+                week_in_block = ((week_num - 1) % WEEKS_PER_BLOCK) + 1
+                weeks.append({
+                    "week_number": week_num,
+                    "phase": "in_season",
+                    "block_number": block_number,
+                    "week_in_block": week_in_block,
+                    "is_deload": week_in_block == 4,
+                })
         return weeks
 
     # season_status == "offseason"
@@ -178,9 +211,9 @@ def build_week_schedule(
         offseason_cutoff_week = deload_weeks_at_or_before[-1] if deload_weeks_at_or_before else 0
 
     for week_num in range(1, TOTAL_WEEKS + 1):
+        block_number = ((week_num - 1) // WEEKS_PER_BLOCK) + 1
+        week_in_block = ((week_num - 1) % WEEKS_PER_BLOCK) + 1
         if week_num <= offseason_cutoff_week:
-            block_number = ((week_num - 1) // WEEKS_PER_BLOCK) + 1
-            week_in_block = ((week_num - 1) % WEEKS_PER_BLOCK) + 1
             weeks.append({
                 "week_number": week_num,
                 "phase": "offseason",
@@ -189,7 +222,17 @@ def build_week_schedule(
                 "is_deload": week_in_block == 4,
             })
         else:
-            weeks.append({"week_number": week_num, "phase": "in_season", "block_number": None, "is_deload": False})
+            # Same 4-week chunking as in-season gets everywhere else — this
+            # cutoff always lands on a week divisible by 4 (see
+            # offseason_cutoff_week above), so this naturally starts a fresh
+            # block boundary rather than a misaligned partial chunk.
+            weeks.append({
+                "week_number": week_num,
+                "phase": "in_season",
+                "block_number": block_number,
+                "week_in_block": week_in_block,
+                "is_deload": week_in_block == 4,
+            })
 
     return weeks
 
@@ -197,7 +240,7 @@ def build_week_schedule(
 def get_week_prescriptions(week_entry: dict) -> dict[str, dict]:
     """All 9 slots' prescriptions for one week, given its schedule entry."""
     if week_entry["phase"] == "in_season":
-        return {slot: get_in_season_prescription(slot) for slot in ALL_SLOTS}
+        return {slot: get_in_season_prescription(slot, week_entry["week_in_block"]) for slot in ALL_SLOTS}
     return {
         slot: get_prescription(slot, week_entry["block_number"], week_entry["week_in_block"])
         for slot in ALL_SLOTS
