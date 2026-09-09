@@ -58,13 +58,20 @@ COMPOUND_PROGRESSION = {
 DELOAD_SET_REDUCTION = 1   # sets -1 to -2 on deload week
 DELOAD_LOAD_PCT_CUT = 0.125  # load -10 to -15%, use midpoint
 
-# In-season: same 9 slots (arm care never drops), volume capped, no new
-# intensity progression — hold steady rather than build.
-IN_SEASON_DAYS_PER_WEEK_MAX = 2
-IN_SEASON_SET_CAP = {
-    "1a": 2, "1b": 2, "1c": 2,
-    "2a": 2, "2b": 2, "2c": 2,
-    "3a": 2, "3b": 3, "3c": 2,  # arm care (3b) intentionally NOT reduced
+# In-season: real numeric sets/reps, same shape as off-season progression
+# (sets climb slightly across weeks 1-3, week 4 backs off) but scaled down —
+# maintenance volume, not building volume. Arm Care (3b) sets never drop,
+# matching the off-season deload floor rule.
+IN_SEASON_PROGRESSION = {
+    "1a": [(2, 3), (2, 3), (3, 3)],                    # Jump/Plyo
+    "1b": [(2, 4), (2, 4), (3, 4)],                    # Med Ball
+    "1c": [(2, "20yd"), (2, "20yd"), (3, "20yd")],     # Carry
+    "2a": [(2, 6), (2, 6), (3, 5)],                    # Lower Compound
+    "2b": [(2, 6), (2, 6), (3, 5)],                    # Upper Push
+    "2c": [(2, 8), (2, 8), (3, 8)],                    # Upper Pull
+    "3a": [(2, 6), (2, 6), (3, 6)],                    # Single Leg
+    "3b": [(3, 10), (3, 10), (3, 12)],                 # Arm Care — sets flat, reps climb slightly
+    "3c": [(2, 10), (2, 10), (3, 10)],                 # Core/Rotational
 }
 
 
@@ -101,24 +108,35 @@ def get_prescription(slot_code: str, block_number: int, week_in_block: int) -> d
 
 def get_in_season_prescription(slot_code: str, week_in_block: int) -> dict:
     """
-    In-season: hold steady, don't push new intensity. Volume capped per slot;
-    arm care (3b) explicitly excluded from any cut. Week 4 of each 4-week
-    in-season chunk is a lighter recovery week (same idea as off-season
-    deload, smaller magnitude) — this is what gives the per-week columns
-    real meaning instead of showing the same number 4 times.
+    In-season sets/reps for one slot at one point in a 4-week chunk.
+    Real numeric values from IN_SEASON_PROGRESSION — not a "Maintain"
+    placeholder — scaled down from off-season volume, same shape (slight
+    climb across weeks 1-3, week 4 backs off). week_in_block: 1-4 (4 = the
+    lighter recovery week).
+
+    "Maintain" still applies conceptually (don't chase a new 1RM, don't add
+    load week over week the way off-season does) but that's now a coaching
+    philosophy conveyed by the italic caption above each table in the PDF,
+    not something that belongs in the numbers themselves.
     """
     is_recovery_week = week_in_block == 4
-    sets = IN_SEASON_SET_CAP[slot_code]
+    idx = min(week_in_block, 3) - 1
+    sets, reps = IN_SEASON_PROGRESSION[slot_code][idx]
+
     if is_recovery_week:
-        sets = max(sets - 1, 1)
+        if isinstance(sets, int):
+            sets = max(sets - DELOAD_SET_REDUCTION, 1)
         if slot_code == "3b":
             sets = max(sets, 2)  # arm care floor, same rule as off-season deload
+        # Reps stay at whatever week 3 established — matches the off-season
+        # deload rule (fewer sets, lighter load; reps unchanged), not a
+        # separate reduction.
 
     return {
         "slot": slot_code,
         "label": SLOT_LABEL[slot_code],
         "sets": sets,
-        "reps": "Maintain",
+        "reps": reps,
         "is_deload": is_recovery_week,
         "load_note": (
             "lighter recovery week — reduce sets slightly, hold load steady"
