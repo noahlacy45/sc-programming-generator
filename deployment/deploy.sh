@@ -35,13 +35,15 @@ gcloud services enable sqladmin.googleapis.com
 gcloud services enable storage.googleapis.com
 
 echo -e "${GREEN}Setting up GCS bucket for generated PDFs...${NC}"
-if gsutil ls -b "gs://${GCS_BUCKET_NAME}" &> /dev/null; then
+if gcloud storage buckets describe "gs://${GCS_BUCKET_NAME}" &> /dev/null; then
     echo "Bucket already exists, skipping creation."
 else
-    gsutil mb -p $PROJECT_ID -l $REGION "gs://${GCS_BUCKET_NAME}"
+    gcloud storage buckets create "gs://${GCS_BUCKET_NAME}" --project=$PROJECT_ID --location=$REGION
 fi
 PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format="value(projectNumber)")
-gsutil iam ch "serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com:objectAdmin" "gs://${GCS_BUCKET_NAME}"
+gcloud storage buckets add-iam-policy-binding "gs://${GCS_BUCKET_NAME}" \
+  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+  --role="roles/storage.objectAdmin"
 
 echo -e "${GREEN}Building and deploying to Cloud Run...${NC}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
