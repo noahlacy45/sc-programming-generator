@@ -55,7 +55,7 @@ def search_players():
         """
         SELECT Player_Id, norm_name, position_type, bats, throws
         FROM player_directory
-        WHERE norm_name LIKE %s
+        WHERE LOWER(norm_name) LIKE LOWER(%s)
         ORDER BY norm_name
         LIMIT 15
         """,

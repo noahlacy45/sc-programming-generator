@@ -270,9 +270,16 @@ athleteSearch.addEventListener('input', () => {
   if (q.length < 2) { typeaheadResults.style.display = 'none'; return; }
   searchTimer = setTimeout(() => {
     fetch(`${API_URL}/players/search?q=${encodeURIComponent(q)}`)
-      .then(r => r.json())
+      .then(async r => {
+        if (!r.ok) throw new Error(`Search failed (HTTP ${r.status})`);
+        return r.json();
+      })
       .then(results => {
-        if (!results.length) { typeaheadResults.style.display = 'none'; return; }
+        if (!results.length) {
+          typeaheadResults.innerHTML = `<div class="typeahead-option" style="color:rgba(255,255,255,0.5); cursor:default;">No athletes found matching "${q}"</div>`;
+          typeaheadResults.style.display = 'block';
+          return;
+        }
         typeaheadResults.innerHTML = results.map(a => `
           <div class="typeahead-option" data-id="${a.Player_Id}">${a.norm_name}</div>
         `).join('');
@@ -281,7 +288,11 @@ athleteSearch.addEventListener('input', () => {
           el.addEventListener('click', () => selectAthlete(parseInt(el.dataset.id, 10)));
         });
       })
-      .catch(err => console.error('Player search failed:', err));
+      .catch(err => {
+        console.error('Player search failed:', err);
+        typeaheadResults.innerHTML = `<div class="typeahead-option" style="color:#f44336; cursor:default;">Search failed: ${err.message}. Check the browser console (F12) for details.</div>`;
+        typeaheadResults.style.display = 'block';
+      });
   }, 250);
 });
 document.addEventListener('click', e => {
