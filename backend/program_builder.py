@@ -114,7 +114,7 @@ def _build_segments_rendered(
                     if seg["phase"] == "offseason":
                         presc = periodization.get_prescription(slot_code, week_entry["block_number"], week_entry["week_in_block"])
                     else:
-                        presc = periodization.get_in_season_prescription(slot_code, week_entry["week_in_block"])
+                        presc = periodization.get_in_season_prescription(slot_code, week_entry["week_in_block"], week_entry["block_number"])
                     # Matches program_pdf.py's week_labels: the last week of
                     # every segment (either phase) is labeled "DL" there
                     # rather than e.g. "W4" — keep these in sync.

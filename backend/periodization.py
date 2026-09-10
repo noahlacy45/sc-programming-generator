@@ -135,46 +135,70 @@ def get_prescription(slot_code: str, block_number: int, week_in_block: int) -> d
     }
 
 
-def _reduce_reps_for_recovery(reps):
+# Gentle rep decline block-to-block, reflecting cumulative season fatigue —
+# a real, distinct concept from the week-to-week undulation question already
+# settled: this is a slow trend across a whole season (a player in weeks
+# 9-12 carries more accumulated wear than in weeks 1-4), not a response to
+# week-to-week schedule variance. Applied to reps only; sets stay governed
+# purely by slot category (already differentiated above). Arm Care (3b) is
+# excluded — it never backs off, same rule as the recovery-week logic.
+BLOCK_FATIGUE_SCALE = {1: 1.0, 2: 0.85, 3: 0.70}
+
+
+def _scale_value(value, factor: float, floor: int = 2):
     """
-    Recovery-week rep reduction that works whether reps is a plain number,
-    a distance string ("20yd"), or a hold-time string ("20 sec") — pull out
-    the leading number, scale it down, reattach whatever suffix followed it.
-    Floors at 2 so it never reduces to something silly like 0 or 1.
+    Scales a plain number or a 'N<suffix>' string (e.g. '20yd', '20 sec') by
+    `factor`, flooring at `floor` so it never reduces to something silly.
+    Shared by both the block-to-block fatigue decline and the within-block
+    recovery-week reduction — same parsing problem, different factor.
     """
-    if isinstance(reps, int):
-        return max(round(reps * 0.6), 2)
+    if isinstance(value, int):
+        return max(round(value * factor), floor)
 
     import re
-    match = re.match(r"^(\d+)(.*)$", reps)
+    match = re.match(r"^(\d+)(.*)$", value)
     if not match:
-        return reps  # can't parse it — leave as-is rather than guess
+        return value  # can't parse it — leave as-is rather than guess
     number, suffix = match.groups()
-    reduced = max(round(int(number) * 0.75), 2)
-    return f"{reduced}{suffix}"
+    return f"{max(round(int(number) * factor), floor)}{suffix}"
 
 
-def get_in_season_prescription(slot_code: str, week_in_block: int) -> dict:
+def _reduce_reps_for_recovery(reps):
+    """Within-block recovery-week reduction — see get_in_season_prescription."""
+    factor = 0.6 if isinstance(reps, int) else 0.75
+    return _scale_value(reps, factor)
+
+
+def get_in_season_prescription(slot_code: str, week_in_block: int, block_number: int) -> dict:
     """
     In-season sets/reps for one slot at one point in a 4-week chunk.
-    FLAT across weeks 1-3 (same sets/reps every week) — a deliberate choice,
-    not a placeholder; see IN_SEASON_PROGRESSION's comment for why.
+    FLAT across weeks 1-3 WITHIN a block (same sets/reps every week) — a
+    deliberate choice; see IN_SEASON_PROGRESSION's comment for why. That is
+    a different question from whether Block 1, 2, and 3 should look
+    identical to each other — they shouldn't, and now don't: reps decline
+    gently block to block via BLOCK_FATIGUE_SCALE, reflecting cumulative
+    season fatigue, on top of which week 4 of each block still applies its
+    own additional within-block recovery reduction.
 
     Week 4 (recovery) does NOT reduce sets — with an in-season baseline of
     only 2-3 sets to begin with, subtracting even one crashes straight to a
     single set, which reads as "barely a workout" rather than a deliberate
     lighter week. Instead: same sets every week (so it still feels like a
     real, substantive session), reps drop via _reduce_reps_for_recovery(),
-    and load_note calls for reduced intensity/effort — the actual recovery
-    comes from lower volume-per-set and lighter effort, not from the athlete
-    doing almost nothing. Arm Care (3b) is exempted entirely — sets AND reps
-    stay identical all 4 weeks, consistent with it never backing off.
+    and load_note calls for reduced intensity/effort. Arm Care (3b) is
+    exempted from BOTH reductions — sets AND reps stay identical across
+    every week and every block, consistent with it never backing off.
     """
     is_recovery_week = week_in_block == 4
-    sets, reps = IN_SEASON_PROGRESSION[slot_code]
+    sets, base_reps = IN_SEASON_PROGRESSION[slot_code]
 
-    if is_recovery_week and slot_code != "3b":
-        reps = _reduce_reps_for_recovery(reps)
+    if slot_code == "3b":
+        reps = base_reps
+    else:
+        scale = BLOCK_FATIGUE_SCALE[min(block_number, 3)]
+        reps = _scale_value(base_reps, scale) if scale != 1.0 else base_reps
+        if is_recovery_week:
+            reps = _reduce_reps_for_recovery(reps)
 
     return {
         "slot": slot_code,
@@ -183,7 +207,7 @@ def get_in_season_prescription(slot_code: str, week_in_block: int) -> dict:
         "reps": reps,
         "is_deload": is_recovery_week and slot_code != "3b",
         "load_note": (
-            "arm care never backs off — same dose every week, including this one"
+            "arm care never backs off — same dose every week and every block"
             if slot_code == "3b" else
             "lighter recovery week — same sets, fewer reps, drop load/effort to ~60-70%"
             if is_recovery_week else
@@ -304,7 +328,7 @@ def build_week_schedule(
 def get_week_prescriptions(week_entry: dict) -> dict[str, dict]:
     """All 9 slots' prescriptions for one week, given its schedule entry."""
     if week_entry["phase"] == "in_season":
-        return {slot: get_in_season_prescription(slot, week_entry["week_in_block"]) for slot in ALL_SLOTS}
+        return {slot: get_in_season_prescription(slot, week_entry["week_in_block"], week_entry["block_number"]) for slot in ALL_SLOTS}
     return {
         slot: get_prescription(slot, week_entry["block_number"], week_entry["week_in_block"])
         for slot in ALL_SLOTS
