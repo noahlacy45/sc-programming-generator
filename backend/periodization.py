@@ -91,15 +91,15 @@ DELOAD_LOAD_PCT_CUT = 0.125  # load -10 to -15%, use midpoint
 # kind of week-to-week schedule variability that undulation is meant to
 # respond to. Flat is the more defensible choice here, not a compromise.
 IN_SEASON_PROGRESSION = {
-    "1a": (2, 3),          # Jump/Plyo
+    "1a": (2, 3),          # Jump/Plyo — power work, quality over volume
     "1b": (2, 4),          # Med Ball
     "1c": (2, "20yd"),     # Carry
-    "2a": (2, 6),          # Lower Compound
+    "2a": (3, 6),          # Lower Compound — the day's main strength driver, gets an extra set
     "2b": (2, 6),          # Upper Push
-    "2c": (2, 8),          # Upper Pull
+    "2c": (3, 8),          # Upper Pull — extra set alongside its higher reps, same 2:1 pull:push rationale
     "3a": (2, 6),          # Single Leg
-    "3b": (3, 12),          # Arm Care — bumped to match off-season's evidence-supported range
-    "3c": (2, "20 sec"),    # Core/Rotational — anti-rotation hold, not reps
+    "3b": (3, 12),         # Arm Care
+    "3c": (2, "20 sec"),   # Core/Rotational — anti-rotation hold, not reps
 }
 
 

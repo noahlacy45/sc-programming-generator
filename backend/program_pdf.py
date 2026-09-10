@@ -189,10 +189,9 @@ def _segment_table(pdf: ProgramPDF, segment: dict, day_letter: str, day_data: di
             sets = wk.get("sets")
             reps = wk.get("reps")
             sets_text = pdf_safe(str(sets)) if sets is not None else "-"
-            # In-season reps carries a long documentation sentence (see
-            # periodization.get_in_season_prescription) — the italic caption
-            # above the table already explains it; the cell just needs "Maintain".
-            reps_text = "Maintain" if is_in_season else (pdf_safe(str(reps)) if reps is not None else "-")
+            # Direct passthrough — reps is whatever periodization.py computed
+            # (a real number, a distance string, or a hold-time string).
+            reps_text = pdf_safe(str(reps)) if reps is not None else "-"
             pdf.cell(WEEK_SETS_COL_WIDTH, 6, sets_text, border=1, align="C")
             pdf.cell(WEEK_REPS_COL_WIDTH, 6, reps_text, border=1, align="C")
 
