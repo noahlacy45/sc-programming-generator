@@ -44,35 +44,64 @@ OFFSEASON_PROGRESSION = {
     "2b": None,  # Upper Push: same pattern as compound
     "2c": None,  # Upper Pull: same pattern as compound
     "3a": [(3, 8), (3, 8), (4, 6)],   # Single Leg: moderate reps, sets increase
-    "3b": [(2, 10), (2, 10), (3, 10)],  # Arm Care: reps flat/slightly increasing
-    "3c": [(2, 10), (3, 10), (3, 12)],  # Core: reps or hold time increase
+    "3b": [(2, 12), (2, 12), (3, 15)],  # Arm Care: bumped into evidence-supported 12-15 rep range
+    "3c": [(2, "30 sec"), (3, "30 sec"), (3, "30 sec")],  # Core: anti-rotation holds, not reps
 }
 
-# Compound lift progression (slots 2a/2b/2c) is block-specific per the handoff
+# Compound lift progression is now differentiated per slot, not shared —
+# 2a (Lower Compound) tapers to true low-rep strength/power by Block 3,
+# matching a standard strength periodization model. 2b (Upper Push) stays
+# moderate-rep throughout rather than following lower-body down to 3 reps —
+# Gemini's research (and general throwing-athlete practice) flags aggressive
+# low-rep/near-maximal overhead-adjacent pressing as something to avoid even
+# in the off-season, given anterior shoulder stress. 2c (Upper Pull) stays
+# the highest-rep of the three across all blocks — a deliberate, evidence-
+# backed difference: pull volume for throwers is dosed for scapular
+# stability/posture (roughly a 2:1 pull:push volume ratio), not 1RM-style
+# strength, so it never chases low reps the way 2a does even at peak block.
 COMPOUND_PROGRESSION = {
-    1: [(3, 8), (3, 6), (4, 5)],
-    2: [(3, 6), (4, 5), (4, 4)],
-    3: [(4, 4), (4, 3), (5, 3)],
+    "2a": {  # Lower Compound
+        1: [(3, 8), (3, 6), (4, 5)],
+        2: [(3, 6), (4, 5), (4, 4)],
+        3: [(4, 4), (4, 3), (5, 3)],
+    },
+    "2b": {  # Upper Push
+        1: [(3, 10), (3, 8), (4, 6)],
+        2: [(3, 8), (4, 6), (4, 5)],
+        3: [(4, 6), (4, 5), (5, 5)],
+    },
+    "2c": {  # Upper Pull — stays high-rep throughout, never tapers to 2a/2b's low reps
+        1: [(4, 12), (4, 10), (5, 10)],
+        2: [(4, 10), (5, 10), (5, 8)],
+        3: [(5, 10), (5, 8), (5, 8)],
+    },
 }
 
 DELOAD_SET_REDUCTION = 1   # sets -1 to -2 on deload week
 DELOAD_LOAD_PCT_CUT = 0.125  # load -10 to -15%, use midpoint
 
-# In-season: real numeric sets/reps, same shape as off-season progression
-# (sets climb slightly across weeks 1-3, week 4 backs off) but scaled down —
-# maintenance volume, not building volume. Arm Care (3b) sets never drop,
-# matching the off-season deload floor rule.
+# In-season: FLAT across weeks 1-3 (identical sets/reps each week), with
+# week 4 as the only real change (lighter recovery week). This is a
+# deliberate choice, not a default — researched and discussed directly:
+# the case for week-to-week undulation in the literature (e.g. lighter
+# weeks aligned with heavy-travel stretches, heavier weeks aligned with
+# lighter game weeks) doesn't have anything to attach to for this athlete
+# population — HS tournament ball (weekend-heavy, repeats most weeks all
+# summer/fall) and HS spring season (steady 2-4 games/week) don't have the
+# kind of week-to-week schedule variability that undulation is meant to
+# respond to. Flat is the more defensible choice here, not a compromise.
 IN_SEASON_PROGRESSION = {
-    "1a": [(2, 3), (2, 3), (3, 3)],                    # Jump/Plyo
-    "1b": [(2, 4), (2, 4), (3, 4)],                    # Med Ball
-    "1c": [(2, "20yd"), (2, "20yd"), (3, "20yd")],     # Carry
-    "2a": [(2, 6), (2, 6), (3, 5)],                    # Lower Compound
-    "2b": [(2, 6), (2, 6), (3, 5)],                    # Upper Push
-    "2c": [(2, 8), (2, 8), (3, 8)],                    # Upper Pull
-    "3a": [(2, 6), (2, 6), (3, 6)],                    # Single Leg
-    "3b": [(3, 10), (3, 10), (3, 12)],                 # Arm Care — sets flat, reps climb slightly
-    "3c": [(2, 10), (2, 10), (3, 10)],                 # Core/Rotational
+    "1a": (2, 3),          # Jump/Plyo
+    "1b": (2, 4),          # Med Ball
+    "1c": (2, "20yd"),     # Carry
+    "2a": (2, 6),          # Lower Compound
+    "2b": (2, 6),          # Upper Push
+    "2c": (2, 8),          # Upper Pull
+    "3a": (2, 6),          # Single Leg
+    "3b": (3, 12),          # Arm Care — bumped to match off-season's evidence-supported range
+    "3c": (2, "20 sec"),    # Core/Rotational — anti-rotation hold, not reps
 }
+
 
 
 def get_prescription(slot_code: str, block_number: int, week_in_block: int) -> dict:
@@ -84,7 +113,7 @@ def get_prescription(slot_code: str, block_number: int, week_in_block: int) -> d
     idx = min(week_in_block, 3) - 1  # deload reuses week-3's prescription, then reduces it
 
     if slot_code in ("2a", "2b", "2c"):
-        sets, reps = COMPOUND_PROGRESSION[block_number][idx]
+        sets, reps = COMPOUND_PROGRESSION[slot_code][block_number][idx]
     else:
         table = OFFSEASON_PROGRESSION[slot_code]
         sets, reps = table[idx]
@@ -106,40 +135,57 @@ def get_prescription(slot_code: str, block_number: int, week_in_block: int) -> d
     }
 
 
+def _reduce_reps_for_recovery(reps):
+    """
+    Recovery-week rep reduction that works whether reps is a plain number,
+    a distance string ("20yd"), or a hold-time string ("20 sec") — pull out
+    the leading number, scale it down, reattach whatever suffix followed it.
+    Floors at 2 so it never reduces to something silly like 0 or 1.
+    """
+    if isinstance(reps, int):
+        return max(round(reps * 0.6), 2)
+
+    import re
+    match = re.match(r"^(\d+)(.*)$", reps)
+    if not match:
+        return reps  # can't parse it — leave as-is rather than guess
+    number, suffix = match.groups()
+    reduced = max(round(int(number) * 0.75), 2)
+    return f"{reduced}{suffix}"
+
+
 def get_in_season_prescription(slot_code: str, week_in_block: int) -> dict:
     """
     In-season sets/reps for one slot at one point in a 4-week chunk.
-    Real numeric values from IN_SEASON_PROGRESSION — not a "Maintain"
-    placeholder — scaled down from off-season volume, same shape (slight
-    climb across weeks 1-3, week 4 backs off). week_in_block: 1-4 (4 = the
-    lighter recovery week).
+    FLAT across weeks 1-3 (same sets/reps every week) — a deliberate choice,
+    not a placeholder; see IN_SEASON_PROGRESSION's comment for why.
 
-    "Maintain" still applies conceptually (don't chase a new 1RM, don't add
-    load week over week the way off-season does) but that's now a coaching
-    philosophy conveyed by the italic caption above each table in the PDF,
-    not something that belongs in the numbers themselves.
+    Week 4 (recovery) does NOT reduce sets — with an in-season baseline of
+    only 2-3 sets to begin with, subtracting even one crashes straight to a
+    single set, which reads as "barely a workout" rather than a deliberate
+    lighter week. Instead: same sets every week (so it still feels like a
+    real, substantive session), reps drop via _reduce_reps_for_recovery(),
+    and load_note calls for reduced intensity/effort — the actual recovery
+    comes from lower volume-per-set and lighter effort, not from the athlete
+    doing almost nothing. Arm Care (3b) is exempted entirely — sets AND reps
+    stay identical all 4 weeks, consistent with it never backing off.
     """
     is_recovery_week = week_in_block == 4
-    idx = min(week_in_block, 3) - 1
-    sets, reps = IN_SEASON_PROGRESSION[slot_code][idx]
+    sets, reps = IN_SEASON_PROGRESSION[slot_code]
 
-    if is_recovery_week:
-        if isinstance(sets, int):
-            sets = max(sets - DELOAD_SET_REDUCTION, 1)
-        if slot_code == "3b":
-            sets = max(sets, 2)  # arm care floor, same rule as off-season deload
-        # Reps stay at whatever week 3 established — matches the off-season
-        # deload rule (fewer sets, lighter load; reps unchanged), not a
-        # separate reduction.
+    if is_recovery_week and slot_code != "3b":
+        reps = _reduce_reps_for_recovery(reps)
 
     return {
         "slot": slot_code,
         "label": SLOT_LABEL[slot_code],
         "sets": sets,
         "reps": reps,
-        "is_deload": is_recovery_week,
+        "is_deload": is_recovery_week and slot_code != "3b",
         "load_note": (
-            "lighter recovery week — reduce sets slightly, hold load steady"
+            "arm care never backs off — same dose every week, including this one"
+            if slot_code == "3b" else
+            "lighter recovery week — same sets, fewer reps, drop load/effort to ~60-70%"
             if is_recovery_week else
             "maintain load; the goal is preserving off-season gains through the season, not building"
         ),
