@@ -1,0 +1,7 @@
+.env
+__pycache__/
+*.pyc
+venv/
+.venv/
+Tusky_Offseason_SC_Program_2026-27.pdf
+TuskyOffseasonGenerator.py
