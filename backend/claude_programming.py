@@ -8,7 +8,6 @@ call per block. Sonnet 5 handles a JSON output this size fine in one shot,
 and it avoids the state-management complexity of stitching multiple calls
 together (anti-repeat across segments, etc.).
 """
-import json
 from typing import Any
 
 import anthropic
@@ -75,60 +74,107 @@ If none of the eligible options in a slot are a good fit for this athlete's need
 
 For EACH exercise you choose, also write a SHORT coaching note (under 12 words) — a specific technical/intent cue, not a generic restatement of the exercise name. Match the terse style of: "Light load; max intent every rep", "Single-leg hinge; left side emphasis for symmetry", "Retract and depress scap; increase load W2 to W3".
 
-Respond with ONLY valid JSON, no other text, in exactly this shape:
-{{
-  "assessment_summary": {{
-    "imtp_paragraph": "...",
-    "hop_paragraph": "...",
-    "cmj_paragraph": "...",
-    "sj_paragraph": "...",
-    "overall_paragraph": "..."
-  }},
-  "segments": [
-    {{
-      "week_start": <int>, "week_end": <int>,
-      "days": {{
-        "A": {{
-          "1a": {{"drill_id": <int>, "note": "..."}}, "1b": {{"drill_id": <int>, "note": "..."}}, "1c": {{"drill_id": <int>, "note": "..."}},
-          "2a": {{"drill_id": <int>, "note": "..."}}, "2b": {{"drill_id": <int>, "note": "..."}}, "2c": {{"drill_id": <int>, "note": "..."}},
-          "3a": {{"drill_id": <int>, "note": "..."}}, "3b": {{"drill_id": <int>, "note": "..."}}, "3c": {{"drill_id": <int>, "note": "..."}}
-        }},
-        "B": {{ ... same 9 slots, same {{"drill_id", "note"}} shape ... }}
-      }}
-    }}
-  ],
-  "suggested_new_drills": [
-    {{"slot": "2a", "week_start": <int>, "week_end": <int>, "day": "A", "suggested_name": "...", "reason": "..."}}
-  ]
-}}
+Return your answer by calling the submit_program tool exactly once. Include a "segments" entry for EVERY segment listed above, and within each segment a "days" entry for EVERY day ({', '.join(day_letters)}), each with all 9 slots filled. Use [] for suggested_new_drills if you have none.
 """
 
 
+SLOT_CODES = ["1a", "1b", "1c", "2a", "2b", "2c", "3a", "3b", "3c"]
+
+_SLOT_CHOICE = {
+    "type": "object",
+    "properties": {
+        "drill_id": {"type": "integer"},
+        "note": {"type": "string"},
+    },
+    "required": ["drill_id", "note"],
+}
+
+_DAY = {
+    "type": "object",
+    "properties": {code: _SLOT_CHOICE for code in SLOT_CODES},
+    "required": SLOT_CODES,
+}
+
+SUBMIT_PROGRAM_TOOL = {
+    "name": "submit_program",
+    "description": "Submit the completed S&C program: assessment summary paragraphs, per-segment/per-day exercise selections, and any suggested new drills.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "assessment_summary": {
+                "type": "object",
+                "properties": {
+                    k: {"type": "string"}
+                    for k in ["imtp_paragraph", "hop_paragraph", "cmj_paragraph", "sj_paragraph", "overall_paragraph"]
+                },
+                "required": ["imtp_paragraph", "hop_paragraph", "cmj_paragraph", "sj_paragraph", "overall_paragraph"],
+            },
+            "segments": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "week_start": {"type": "integer"},
+                        "week_end": {"type": "integer"},
+                        "days": {
+                            "type": "object",
+                            "properties": {d: _DAY for d in ["A", "B", "C", "D"]},
+                            "additionalProperties": _DAY,
+                        },
+                    },
+                    "required": ["week_start", "week_end", "days"],
+                },
+            },
+            "suggested_new_drills": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "slot": {"type": "string"},
+                        "week_start": {"type": "integer"},
+                        "week_end": {"type": "integer"},
+                        "day": {"type": "string"},
+                        "suggested_name": {"type": "string"},
+                        "reason": {"type": "string"},
+                    },
+                    "required": ["slot", "suggested_name", "reason"],
+                },
+            },
+        },
+        "required": ["assessment_summary", "segments", "suggested_new_drills"],
+    },
+}
+
+
 def call_claude(client: anthropic.Anthropic, prompt: str) -> dict[str, Any]:
+    # Forced tool use instead of "respond with JSON" free text: the API hands
+    # back the tool input already parsed into a dict, so malformed JSON
+    # (shorthand like "{ ... }", trailing commas, comments, stray prose) can no
+    # longer surface as a json.loads error.
     response = client.messages.create(
         model=MODEL,
-        max_tokens=8000,
+        max_tokens=16000,
+        tools=[SUBMIT_PROGRAM_TOOL],
+        tool_choice={"type": "tool", "name": "submit_program"},
         messages=[{"role": "user", "content": prompt}],
     )
 
-    # Don't assume content[0] is the text block — a thinking block (or any
-    # other non-text block) can come first, whose .text is None rather than
-    # a string, which is exactly what produced the 'NoneType' object has no
-    # attribute 'strip' error. Find the actual text block instead.
-    text_blocks = [block.text for block in response.content if getattr(block, "type", None) == "text" and block.text]
-    if not text_blocks:
+    if response.stop_reason == "max_tokens":
         raise ValueError(
-            f"Claude's response had no usable text block. stop_reason={response.stop_reason!r}, "
+            "Claude's response was cut off at the max_tokens limit before the full program "
+            "was written. Raise max_tokens in claude_programming.call_claude."
+        )
+
+    tool_inputs = [
+        block.input for block in response.content
+        if getattr(block, "type", None) == "tool_use" and block.name == "submit_program"
+    ]
+    if not tool_inputs or not isinstance(tool_inputs[0], dict):
+        raise ValueError(
+            f"Claude didn't return a submit_program tool call. stop_reason={response.stop_reason!r}, "
             f"content block types={[getattr(b, 'type', type(b).__name__) for b in response.content]!r}"
         )
-    text = text_blocks[0].strip()
-
-    # Defensive: strip markdown code fences if the model wraps the JSON anyway
-    if text.startswith("```"):
-        text = text.split("```")[1]
-        if text.startswith("json"):
-            text = text[4:]
-    return json.loads(text)
+    return tool_inputs[0]
 
 
 def validate_response(parsed: dict, drill_pools: dict[str, list[dict]]) -> dict:

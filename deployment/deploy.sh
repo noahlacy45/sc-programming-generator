@@ -56,7 +56,7 @@ gcloud run deploy $SERVICE_NAME \
   --allow-unauthenticated \
   --memory 512Mi \
   --cpu 1 \
-  --timeout 120 \
+  --timeout 300 \
   --max-instances 10 \
   --set-env-vars "DB_PORT=3306,GCP_PROJECT_ID=${PROJECT_ID},GCS_BUCKET_NAME=${GCS_BUCKET_NAME}" \
   --add-cloudsql-instances $DB_CONNECTION_NAME
