@@ -10,6 +10,8 @@ together (anti-repeat across segments, etc.).
 """
 from typing import Any
 
+import copy
+
 import anthropic
 
 MODEL = "claude-sonnet-5"
@@ -97,6 +99,33 @@ _DAY = {
     "additionalProperties": False,
 }
 
+def build_submit_tool(drill_pools: dict[str, list[dict]] | None = None) -> dict:
+    """
+    The submit_program tool, with each slot's drill_id restricted (via enum) to
+    the drill_ids actually in that slot's pool, so Claude can't easily pick an
+    id from a different slot's list.
+    """
+    tool = copy.deepcopy(SUBMIT_PROGRAM_TOOL)
+    if not drill_pools:
+        return tool
+    day = {"type": "object", "properties": {}, "required": SLOT_CODES, "additionalProperties": False}
+    for code in SLOT_CODES:
+        ids = sorted({d["drill_id"] for d in drill_pools.get(code, [])})
+        drill_id_schema = {"type": "integer"}
+        if ids:
+            drill_id_schema["enum"] = ids
+        day["properties"][code] = {
+            "type": "object",
+            "properties": {"drill_id": drill_id_schema, "note": {"type": "string"}},
+            "required": ["drill_id", "note"],
+            "additionalProperties": False,
+        }
+    days = tool["input_schema"]["properties"]["segments"]["items"]["properties"]["days"]
+    days["properties"] = {d: day for d in ["A", "B", "C", "D"]}
+    days["additionalProperties"] = day
+    return tool
+
+
 SUBMIT_PROGRAM_TOOL = {
     "name": "submit_program",
     "description": "Submit the completed S&C program: assessment summary paragraphs, per-segment/per-day exercise selections, and any suggested new drills.",
@@ -148,7 +177,11 @@ SUBMIT_PROGRAM_TOOL = {
 }
 
 
-def call_claude(client: anthropic.Anthropic, prompt: str) -> dict[str, Any]:
+def call_claude(
+    client: anthropic.Anthropic,
+    prompt: str,
+    drill_pools: dict[str, list[dict]] | None = None,
+) -> dict[str, Any]:
     # Forced tool use instead of "respond with JSON" free text: the API hands
     # back the tool input already parsed into a dict, so malformed JSON
     # (shorthand like "{ ... }", trailing commas, comments, stray prose) can no
@@ -156,7 +189,7 @@ def call_claude(client: anthropic.Anthropic, prompt: str) -> dict[str, Any]:
     response = client.messages.create(
         model=MODEL,
         max_tokens=16000,
-        tools=[SUBMIT_PROGRAM_TOOL],
+        tools=[build_submit_tool(drill_pools)],
         tool_choice={"type": "tool", "name": "submit_program"},
         messages=[{"role": "user", "content": prompt}],
     )
@@ -176,7 +209,111 @@ def call_claude(client: anthropic.Anthropic, prompt: str) -> dict[str, Any]:
             f"Claude didn't return a submit_program tool call. stop_reason={response.stop_reason!r}, "
             f"content block types={[getattr(b, 'type', type(b).__name__) for b in response.content]!r}"
         )
-    return normalize_response(tool_inputs[0])
+    parsed = normalize_response(tool_inputs[0])
+    if drill_pools:
+        parsed = repair_invalid_picks(client, parsed, drill_pools)
+    return parsed
+
+
+def find_invalid_picks(parsed: dict, drill_pools: dict[str, list[dict]]) -> list[dict]:
+    """Every chosen drill whose id isn't in the eligible pool for its slot."""
+    valid_ids_by_slot = {slot: {d["drill_id"] for d in drills} for slot, drills in drill_pools.items()}
+    invalid = []
+    for seg_index, segment in enumerate(parsed.get("segments", []) or []):
+        for day, slots in (segment.get("days") or {}).items():
+            for slot_code, choice in slots.items():
+                if not valid_ids_by_slot.get(slot_code):
+                    continue  # empty pool: nothing to repair with; validate_response reports it
+                if choice.get("drill_id") not in valid_ids_by_slot[slot_code]:
+                    invalid.append({
+                        "segment_index": seg_index,
+                        "week_start": segment.get("week_start"),
+                        "week_end": segment.get("week_end"),
+                        "day": day,
+                        "slot": slot_code,
+                        "bad_drill_id": choice.get("drill_id"),
+                        "note": choice.get("note", ""),
+                    })
+    return invalid
+
+
+REPAIR_TOOL = {
+    "name": "submit_replacements",
+    "description": "Submit a valid replacement drill for each invalid pick, keyed by its index in the list.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "replacements": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "index": {"type": "integer"},
+                        "drill_id": {"type": "integer"},
+                        "note": {"type": "string"},
+                    },
+                    "required": ["index", "drill_id", "note"],
+                    "additionalProperties": False,
+                },
+            }
+        },
+        "required": ["replacements"],
+    },
+}
+
+
+def repair_invalid_picks(client: anthropic.Anthropic, parsed: dict, drill_pools: dict[str, list[dict]]) -> dict:
+    """
+    If Claude picked drill_ids outside a slot's pool, make one short follow-up
+    call asking only for replacements for those slots (not the whole program),
+    then apply the valid ones. Anything still invalid is left for
+    validate_response to report.
+    """
+    invalid = find_invalid_picks(parsed, drill_pools)
+    if not invalid:
+        return parsed
+
+    lines = []
+    for i, bad in enumerate(invalid):
+        options = "; ".join(f"[id {d['drill_id']}] {d['drill']}" for d in drill_pools[bad["slot"]])
+        lines.append(
+            f"{i}. Weeks {bad['week_start']}-{bad['week_end']}, Day {bad['day']}, slot {bad['slot']}: "
+            f"you chose drill_id {bad['bad_drill_id']}, which is NOT in this slot's pool. "
+            f"Original note: \"{bad['note']}\". Eligible options: {options}"
+        )
+    repair_prompt = (
+        "You built an S&C program, but some exercise picks used drill_ids that aren't in the "
+        "eligible pool for their slot. For each item below, choose a replacement ONLY from that "
+        "item's eligible options, keeping the same training intent, and write a short coaching "
+        "note (under 12 words). Submit with the submit_replacements tool.\n\n" + "\n".join(lines)
+    )
+
+    response = client.messages.create(
+        model=MODEL,
+        max_tokens=4000,
+        tools=[REPAIR_TOOL],
+        tool_choice={"type": "tool", "name": "submit_replacements"},
+        messages=[{"role": "user", "content": repair_prompt}],
+    )
+    tool_inputs = [
+        block.input for block in response.content
+        if getattr(block, "type", None) == "tool_use" and block.name == "submit_replacements"
+    ]
+    if not tool_inputs or not isinstance(tool_inputs[0], dict):
+        return parsed
+
+    for rep in tool_inputs[0].get("replacements", []) or []:
+        index = _to_int(rep.get("index"))
+        if not isinstance(index, int) or not 0 <= index < len(invalid):
+            continue
+        bad = invalid[index]
+        new_id = _to_int(rep.get("drill_id"))
+        if new_id in {d["drill_id"] for d in drill_pools[bad["slot"]]}:
+            parsed["segments"][bad["segment_index"]]["days"][bad["day"]][bad["slot"]] = {
+                "drill_id": new_id,
+                "note": rep.get("note") or bad["note"],
+            }
+    return parsed
 
 
 def _to_int(value):

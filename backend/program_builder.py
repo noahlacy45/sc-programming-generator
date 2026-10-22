@@ -178,7 +178,7 @@ def build_program(
     pool_text = drill_pool.format_pool_for_prompt(pools)
 
     prompt = claude_programming.build_prompt(athlete, priority_stack, segments, pool_text, days_per_week)
-    raw_response = claude_programming.call_claude(anthropic_client, prompt)
+    raw_response = claude_programming.call_claude(anthropic_client, prompt, pools)
     validated = claude_programming.validate_response(raw_response, pools)
 
     drill_lookup = _resolve_drill_lookup(pools)
