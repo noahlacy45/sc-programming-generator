@@ -87,12 +87,14 @@ _SLOT_CHOICE = {
         "note": {"type": "string"},
     },
     "required": ["drill_id", "note"],
+    "additionalProperties": False,
 }
 
 _DAY = {
     "type": "object",
     "properties": {code: _SLOT_CHOICE for code in SLOT_CODES},
     "required": SLOT_CODES,
+    "additionalProperties": False,
 }
 
 SUBMIT_PROGRAM_TOOL = {
@@ -174,7 +176,42 @@ def call_claude(client: anthropic.Anthropic, prompt: str) -> dict[str, Any]:
             f"Claude didn't return a submit_program tool call. stop_reason={response.stop_reason!r}, "
             f"content block types={[getattr(b, 'type', type(b).__name__) for b in response.content]!r}"
         )
-    return tool_inputs[0]
+    return normalize_response(tool_inputs[0])
+
+
+def _to_int(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return value
+
+
+def normalize_response(parsed: dict) -> dict:
+    """
+    Coerce each day's slots into {slot: {"drill_id": int, "note": str}}.
+    Claude occasionally flattens a day into {"1c": 12, "1c_note": "..."} or
+    {"1c_drill_id": 12, "1c_note": "..."}; fold those back into the nested shape
+    and drop any keys that aren't real slot codes.
+    """
+    for segment in parsed.get("segments", []) or []:
+        days = segment.get("days") or {}
+        for day, slots in list(days.items()):
+            if not isinstance(slots, dict):
+                continue
+            fixed = {}
+            for code in SLOT_CODES:
+                choice = slots.get(code)
+                if isinstance(choice, dict):
+                    drill_id = choice.get("drill_id")
+                    note = choice.get("note", "")
+                else:
+                    drill_id = choice if choice is not None else slots.get(f"{code}_drill_id")
+                    note = slots.get(f"{code}_note", "")
+                if drill_id is None:
+                    continue  # left missing; validate_response reports it clearly
+                fixed[code] = {"drill_id": _to_int(drill_id), "note": note or ""}
+            days[day] = fixed
+    return parsed
 
 
 def validate_response(parsed: dict, drill_pools: dict[str, list[dict]]) -> dict:
@@ -190,6 +227,12 @@ def validate_response(parsed: dict, drill_pools: dict[str, list[dict]]) -> dict:
 
     for segment in parsed.get("segments", []):
         for day, slots in segment["days"].items():
+            missing = [c for c in SLOT_CODES if c not in slots]
+            if missing:
+                raise ValueError(
+                    f"Claude left slot(s) {', '.join(missing)} empty "
+                    f"(week {segment['week_start']}-{segment['week_end']}, day {day})."
+                )
             for slot_code, choice in slots.items():
                 drill_id = choice.get("drill_id") if isinstance(choice, dict) else choice
                 if drill_id not in valid_ids_by_slot.get(slot_code, set()):
